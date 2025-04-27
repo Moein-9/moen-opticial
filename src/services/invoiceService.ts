@@ -88,6 +88,32 @@ export const createInvoice = async (invoiceData: Omit<InvoiceData, 'id'>): Promi
     const deposit = Number(invoiceData.deposit) || 0;
     const remaining = Math.max(0, total - deposit);
     const isPaid = remaining === 0;
+
+    // Process any payments data if available
+    let payments = [];
+    if (invoiceData.payments) {
+      // Make sure we don't double-encode the payments array
+      payments = Array.isArray(invoiceData.payments) ? invoiceData.payments : 
+               (typeof invoiceData.payments === 'string' ? JSON.parse(invoiceData.payments) : []);
+      
+      // If we don't have any payments but have a deposit, create an initial payment
+      if (payments.length === 0 && deposit > 0) {
+        payments = [{
+          date: new Date().toISOString(),
+          amount: deposit,
+          method: invoiceData.payment_method
+        }];
+      }
+    } else if (deposit > 0) {
+      // If no payments array but deposit exists, create an initial payment
+      payments = [{
+        date: new Date().toISOString(),
+        amount: deposit,
+        method: invoiceData.payment_method
+      }];
+    }
+    
+    console.log("Creating invoice with payments:", payments);
     
     // Convert JSON data to strings as needed
     const dataToInsert = {
@@ -125,7 +151,8 @@ export const createInvoice = async (invoiceData: Omit<InvoiceData, 'id'>): Promi
       remaining: remaining,
       payment_method: invoiceData.payment_method,
       auth_number: invoiceData.auth_number,
-      is_paid: isPaid
+      is_paid: isPaid,
+      payments: payments.length > 0 ? payments : null  // Store as a proper array, not as a JSON string
     };
 
     // Using TypeScript assertion to handle type mismatch
@@ -511,7 +538,7 @@ export const addPaymentToInvoice = async (invoiceId: string, payment: { amount: 
     const { error: updateError } = await supabase
       .from('invoices')
       .update({
-        payments: JSON.stringify(updatedPayments),
+        payments: updatedPayments,  // Store as a proper array, not as a JSON string
         deposit: newDeposit,
         remaining: newRemaining,
         is_paid: isPaid,
@@ -665,7 +692,7 @@ export const addMultiplePaymentsToInvoice = async (
         deposit: newDeposit,
         remaining: newRemaining,
         is_paid: isPaid,
-        payments: JSON.stringify(updatedPayments),
+        payments: updatedPayments,  // Store as a proper array, not as a JSON string
         updated_at: new Date().toISOString()
       })
       .eq('invoice_id', invoiceId);

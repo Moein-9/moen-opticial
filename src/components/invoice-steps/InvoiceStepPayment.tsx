@@ -157,6 +157,18 @@ export const InvoiceStepPayment: React.FC = () => {
     setValue("workOrderId", workOrderId);
 
     const formData = getValues();
+    const initialDeposit = formData.deposit || 0;
+
+    // Create an initial payment entry for the deposit amount matching the exact structure from the database
+    const initialPayment = {
+      date: new Date().toISOString(),
+      amount: initialDeposit,
+      method: formData.paymentMethod,
+    };
+
+    // Only add a payment entry if there's an actual deposit
+    const payments = initialDeposit > 0 ? [initialPayment] : [];
+
     const invoiceData: any = {
       patientId: formData.patientId,
       patientName: formData.patientName,
@@ -170,6 +182,7 @@ export const InvoiceStepPayment: React.FC = () => {
       paymentMethod: formData.paymentMethod,
       authNumber: formData.authNumber,
       workOrderId: workOrderId,
+      payments: payments, // Include payments array with initial deposit
     };
 
     if (invoiceType === "glasses") {
@@ -195,7 +208,21 @@ export const InvoiceStepPayment: React.FC = () => {
     try {
       const savingToastId = toast.loading("Saving order to database...");
 
-      const result = await saveOrderToSupabase(formData);
+      // Log what we're sending to Supabase
+      console.log("Saving to Supabase with data:", {
+        ...formData,
+        payments: payments,
+        workOrderId: workOrderId,
+        invoiceId: invoiceId,
+      });
+
+      // Pass the payments array explicitly to the saveOrderToSupabase function
+      const result = await saveOrderToSupabase({
+        ...formData,
+        payments: payments,
+        workOrderId: workOrderId,
+        invoiceId: invoiceId,
+      });
 
       if (result.invoiceId) {
         // Update the invoiceId and workOrderId in case they're different
