@@ -631,6 +631,10 @@ export const RemainingPayments: React.FC = () => {
     const actualRemaining = Math.max(0, invoice.total - totalPaid);
     const actualIsPaid = actualRemaining <= 0;
 
+    // If we have a specific remainingAfterPayment value, use it instead
+    const finalRemaining =
+      remainingAfterPayment !== null ? remainingAfterPayment : actualRemaining;
+
     return {
       // Map fields to expected format
       invoiceId: invoice.invoice_id,
@@ -663,11 +667,11 @@ export const RemainingPayments: React.FC = () => {
       discount: invoice.discount,
       deposit: totalPaid, // Use calculated total paid
       total: invoice.total,
-      remaining: actualRemaining, // Use calculated remaining amount
+      remaining: finalRemaining, // Use remainingAfterPayment if available
 
       paymentMethod: invoice.payment_method,
       authNumber: invoice.auth_number,
-      isPaid: actualIsPaid, // Use calculated paid status
+      isPaid: finalRemaining <= 0, // Update isPaid based on final remaining amount
       isRefunded: invoice.is_refunded,
       refundAmount: invoice.refund_amount,
       refundDate: ensureValidDate(invoice.refund_date),
