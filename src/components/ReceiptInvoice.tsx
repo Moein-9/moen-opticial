@@ -125,7 +125,7 @@ export const ReceiptInvoice: React.FC<ReceiptInvoiceProps> = ({
   const rem = remaining !== undefined ? remaining : invoice.remaining;
   const payMethod = paymentMethod || invoice.paymentMethod;
   const auth = authNumber || (invoice as any).authNumber;
-  const isPaid = rem <= 0;
+  const isPaid = rem <= 0 || invoice.isPaid === true;
 
   const contactLensItems = Array.isArray(contactLenses)
     ? contactLenses
