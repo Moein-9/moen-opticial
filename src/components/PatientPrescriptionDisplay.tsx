@@ -41,8 +41,10 @@ interface PatientPrescriptionDisplayProps {
   rxHistory?: RxHistoryItem[];
   contactLensRx?: ContactLensRx;
   contactLensRxHistory?: ContactLensRxHistoryItem[];
-  onPrintPrescription: () => void;
-  onPrintContactLensPrescription?: () => void;
+  onPrintPrescription: (historicalRx?: RxData | RxHistoryItem) => void;
+  onPrintContactLensPrescription?: (
+    historicalContactLensRx?: ContactLensRx | ContactLensRxHistoryItem
+  ) => void;
 }
 
 export const PatientPrescriptionDisplay: React.FC<
@@ -256,7 +258,9 @@ export const PatientPrescriptionDisplay: React.FC<
                     variant="outline"
                     size="sm"
                     className="rounded-md border-indigo-300 bg-gradient-to-r from-indigo-50 to-indigo-100 hover:from-indigo-100 hover:to-indigo-200 transition-all shadow-sm h-7 text-xs"
-                    onClick={onPrintPrescription}
+                    onClick={() =>
+                      onPrintPrescription(latestGlassesPrescription)
+                    }
                   >
                     <Printer
                       className={`h-3 w-3 ${
@@ -301,6 +305,7 @@ export const PatientPrescriptionDisplay: React.FC<
                               variant="outline"
                               size="sm"
                               className="rounded-md text-indigo-600 hover:bg-indigo-100 border-indigo-200 h-6 w-6 p-0"
+                              onClick={() => onPrintPrescription(historyItem)}
                             >
                               <Printer className="h-3 w-3" />
                             </Button>
@@ -530,7 +535,11 @@ export const PatientPrescriptionDisplay: React.FC<
                       variant="outline"
                       size="sm"
                       className="rounded-md border-green-300 bg-gradient-to-r from-green-50 to-green-100 hover:from-green-100 hover:to-green-200 transition-all shadow-sm h-7 text-xs"
-                      onClick={onPrintContactLensPrescription}
+                      onClick={() =>
+                        onPrintContactLensPrescription?.(
+                          latestContactLensPrescription
+                        )
+                      }
                     >
                       <Printer
                         className={`h-3 w-3 ${
@@ -576,6 +585,9 @@ export const PatientPrescriptionDisplay: React.FC<
                               variant="outline"
                               size="sm"
                               className="rounded-md text-green-600 hover:bg-green-100 border-green-200 h-6 w-6 p-0"
+                              onClick={() =>
+                                onPrintContactLensPrescription?.(historyItem)
+                              }
                             >
                               <Printer className="h-3 w-3" />
                             </Button>

@@ -215,13 +215,52 @@ export const PatientSearch: React.FC = () => {
     }
   };
 
-  const handleDirectPrint = (printLanguage?: "en" | "ar") => {
+  const handleDirectPrint = (
+    printLanguage?: "en" | "ar",
+    historicalRx?: any
+  ) => {
     if (!selectedPatient || !patientDetails) return;
 
     const langToPrint = printLanguage || useLanguageStore.getState().language;
 
+    // If we have a specific historical prescription to print, use that
+    if (historicalRx) {
+      // Adapt the RxData format from PatientPrescriptionDisplay to the format expected by printRxReceipt
+      const rxForPrinting = {
+        sphereOD: historicalRx.sphereOD || "-",
+        cylOD: historicalRx.cylOD || "-",
+        axisOD: historicalRx.axisOD || "-",
+        addOD: historicalRx.addOD || "-",
+        pdRight: historicalRx.pdRight || "-",
+        sphereOS: historicalRx.sphereOS || "-",
+        cylOS: historicalRx.cylOS || "-",
+        axisOS: historicalRx.axisOS || "-",
+        addOS: historicalRx.addOS || "-",
+        pdLeft: historicalRx.pdLeft || "-",
+        createdAt: historicalRx.createdAt,
+      };
+
+      printRxReceipt({
+        patientName: selectedPatient.full_name,
+        patientPhone: selectedPatient.phone_number,
+        rx: rxForPrinting,
+        forcedLanguage: langToPrint,
+      });
+      return;
+    }
+
+    // Otherwise, use the latest prescription (original behavior)
+    // Sort all glasses prescriptions by date (newest first)
+    const sortedGlassesPrescriptions = [
+      ...patientDetails.glassesPrescriptions,
+    ].sort((a, b) => {
+      const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return dateB - dateA; // Sort descending (newest first)
+    });
+
     // Get the most recent glasses prescription
-    const latestGlassesPrescription = patientDetails.glassesPrescriptions[0];
+    const latestGlassesPrescription = sortedGlassesPrescriptions[0];
 
     if (!latestGlassesPrescription) {
       toast.error(
@@ -244,6 +283,7 @@ export const PatientSearch: React.FC = () => {
       axisOS: latestGlassesPrescription.os_axis || "-",
       addOS: latestGlassesPrescription.os_add || "-",
       pdLeft: latestGlassesPrescription.os_pd || "-",
+      createdAt: latestGlassesPrescription.created_at,
     };
 
     printRxReceipt({
@@ -254,14 +294,68 @@ export const PatientSearch: React.FC = () => {
     });
   };
 
-  const handleContactLensPrint = (printLanguage?: "en" | "ar") => {
+  const handleContactLensPrint = (
+    printLanguage?: "en" | "ar",
+    historicalContactLensRx?: any
+  ) => {
     if (!selectedPatient || !patientDetails) return;
 
     const langToPrint = printLanguage || useLanguageStore.getState().language;
 
+    // If we have a specific historical contact lens prescription, use that
+    if (historicalContactLensRx) {
+      // Use the historical contact lens prescription directly (already in the right format)
+      // Get the latest glasses prescription for the base rx
+      const sortedGlassesPrescriptions = [
+        ...patientDetails.glassesPrescriptions,
+      ].sort((a, b) => {
+        const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return dateB - dateA; // Sort descending (newest first)
+      });
+
+      const latestGlassesPrescription = sortedGlassesPrescriptions[0];
+
+      // Adapt Supabase rx format to the format expected by printRxReceipt
+      const rxForPrinting = latestGlassesPrescription
+        ? {
+            sphereOD: latestGlassesPrescription.od_sph || "-",
+            cylOD: latestGlassesPrescription.od_cyl || "-",
+            axisOD: latestGlassesPrescription.od_axis || "-",
+            addOD: latestGlassesPrescription.od_add || "-",
+            pdRight: latestGlassesPrescription.od_pd || "-",
+            sphereOS: latestGlassesPrescription.os_sph || "-",
+            cylOS: latestGlassesPrescription.os_cyl || "-",
+            axisOS: latestGlassesPrescription.os_axis || "-",
+            addOS: latestGlassesPrescription.os_add || "-",
+            pdLeft: latestGlassesPrescription.os_pd || "-",
+            createdAt: latestGlassesPrescription.created_at,
+          }
+        : undefined;
+
+      printRxReceipt({
+        patientName: selectedPatient.full_name,
+        patientPhone: selectedPatient.phone_number,
+        rx: rxForPrinting,
+        contactLensRx: historicalContactLensRx,
+        printContactLens: true,
+        forcedLanguage: langToPrint,
+      });
+      return;
+    }
+
+    // Otherwise, use the latest contact lens prescription (original behavior)
+    // Sort all contact lens prescriptions by date (newest first)
+    const sortedContactLensPrescriptions = [
+      ...patientDetails.contactLensPrescriptions,
+    ].sort((a, b) => {
+      const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return dateB - dateA; // Sort descending (newest first)
+    });
+
     // Get the most recent contact lens prescription
-    const latestContactLensPrescription =
-      patientDetails.contactLensPrescriptions[0];
+    const latestContactLensPrescription = sortedContactLensPrescriptions[0];
 
     if (!latestContactLensPrescription) {
       toast.error(
@@ -272,8 +366,16 @@ export const PatientSearch: React.FC = () => {
       return;
     }
 
-    // Get the most recent glasses prescription for the base rx
-    const latestGlassesPrescription = patientDetails.glassesPrescriptions[0];
+    // Sort glasses prescriptions for base rx
+    const sortedGlassesPrescriptions = [
+      ...patientDetails.glassesPrescriptions,
+    ].sort((a, b) => {
+      const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return dateB - dateA; // Sort descending (newest first)
+    });
+
+    const latestGlassesPrescription = sortedGlassesPrescriptions[0];
 
     // Adapt Supabase rx format to the format expected by printRxReceipt
     const rxForPrinting = latestGlassesPrescription
@@ -288,6 +390,7 @@ export const PatientSearch: React.FC = () => {
           axisOS: latestGlassesPrescription.os_axis || "-",
           addOS: latestGlassesPrescription.os_add || "-",
           pdLeft: latestGlassesPrescription.os_pd || "-",
+          createdAt: latestGlassesPrescription.created_at,
         }
       : undefined;
 
@@ -307,6 +410,7 @@ export const PatientSearch: React.FC = () => {
         bc: latestContactLensPrescription.os_base_curve || "-",
         dia: latestContactLensPrescription.os_diameter || "14.2",
       },
+      createdAt: latestContactLensPrescription.created_at,
     };
 
     printRxReceipt({
@@ -437,6 +541,21 @@ export const PatientSearch: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handlePrescriptionPrint = (historicalRx?: any) => {
+    if (historicalRx) {
+      // If a specific prescription was provided, print it
+      handleDirectPrint(undefined, historicalRx);
+    } else {
+      // Otherwise, show language selection dialog
+      setIsLanguageDialogOpen(true);
+    }
+  };
+
+  const handleContactLensRxPrint = (historicalContactLensRx?: any) => {
+    // Call the existing handler with no language override and the historical prescription
+    handleContactLensPrint(undefined, historicalContactLensRx);
   };
 
   useEffect(() => {
@@ -620,7 +739,7 @@ export const PatientSearch: React.FC = () => {
                       createdAt: selectedPatient.created_at,
                     }}
                     invoices={patientInvoices}
-                    onPrintPrescription={() => setIsLanguageDialogOpen(true)}
+                    onPrintPrescription={handlePrescriptionPrint}
                   />
                 </div>
 
@@ -654,44 +773,28 @@ export const PatientSearch: React.FC = () => {
                   </div>
 
                   <PatientPrescriptionDisplay
-                    rx={
-                      patientDetails.glassesPrescriptions.length > 0
-                        ? {
-                            sphereOD:
-                              patientDetails.glassesPrescriptions[0].od_sph ||
-                              "",
-                            cylOD:
-                              patientDetails.glassesPrescriptions[0].od_cyl ||
-                              "",
-                            axisOD:
-                              patientDetails.glassesPrescriptions[0].od_axis ||
-                              "",
-                            addOD:
-                              patientDetails.glassesPrescriptions[0].od_add ||
-                              "",
-                            pdRight:
-                              patientDetails.glassesPrescriptions[0].od_pd ||
-                              "",
-                            sphereOS:
-                              patientDetails.glassesPrescriptions[0].os_sph ||
-                              "",
-                            cylOS:
-                              patientDetails.glassesPrescriptions[0].os_cyl ||
-                              "",
-                            axisOS:
-                              patientDetails.glassesPrescriptions[0].os_axis ||
-                              "",
-                            addOS:
-                              patientDetails.glassesPrescriptions[0].os_add ||
-                              "",
-                            pdLeft:
-                              patientDetails.glassesPrescriptions[0].os_pd ||
-                              "",
-                            createdAt:
-                              patientDetails.glassesPrescriptions[0].created_at,
-                          }
-                        : undefined
-                    }
+                    rx={{
+                      sphereOD:
+                        patientDetails.glassesPrescriptions[0]?.od_sph || "",
+                      cylOD:
+                        patientDetails.glassesPrescriptions[0]?.od_cyl || "",
+                      axisOD:
+                        patientDetails.glassesPrescriptions[0]?.od_axis || "",
+                      addOD:
+                        patientDetails.glassesPrescriptions[0]?.od_add || "",
+                      pdRight:
+                        patientDetails.glassesPrescriptions[0]?.od_pd || "",
+                      sphereOS:
+                        patientDetails.glassesPrescriptions[0]?.os_sph || "",
+                      cylOS:
+                        patientDetails.glassesPrescriptions[0]?.os_cyl || "",
+                      axisOS:
+                        patientDetails.glassesPrescriptions[0]?.os_axis || "",
+                      addOS:
+                        patientDetails.glassesPrescriptions[0]?.os_add || "",
+                      pdLeft:
+                        patientDetails.glassesPrescriptions[0]?.os_pd || "",
+                    }}
                     rxHistory={patientDetails.glassesPrescriptions.map(
                       (rx) => ({
                         sphereOD: rx.od_sph || "",
@@ -708,7 +811,7 @@ export const PatientSearch: React.FC = () => {
                       })
                     )}
                     contactLensRx={
-                      patientDetails.contactLensPrescriptions.length > 0
+                      patientDetails.contactLensPrescriptions[0]
                         ? {
                             rightEye: {
                               sphere:
@@ -769,8 +872,8 @@ export const PatientSearch: React.FC = () => {
                         createdAt: rx.created_at,
                       })
                     )}
-                    onPrintPrescription={() => setIsLanguageDialogOpen(true)}
-                    onPrintContactLensPrescription={handleContactLensPrint}
+                    onPrintPrescription={handlePrescriptionPrint}
+                    onPrintContactLensPrescription={handleContactLensRxPrint}
                   />
 
                   <PatientTransactions
