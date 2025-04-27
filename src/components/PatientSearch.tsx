@@ -350,32 +350,24 @@ export const PatientSearch: React.FC = () => {
         prescriptionData
       );
 
-      if (result) {
-        // Reload patient data to show the new prescription
-        const patientData = await patientService.getPatientById(
-          selectedPatient.id
-        );
+      // Reload patient data to show the new prescription
+      const patientData = await patientService.getPatientById(
+        selectedPatient.id
+      );
 
-        if (patientData) {
-          setPatientDetails({
-            notes: patientData.notes,
-            glassesPrescriptions: patientData.glassesPrescriptions,
-            contactLensPrescriptions: patientData.contactLensPrescriptions,
-          });
-        }
-
-        toast.success(
-          language === "ar"
-            ? "تم إضافة الوصفة الطبية بنجاح"
-            : "Prescription added successfully"
-        );
-      } else {
-        toast.error(
-          language === "ar"
-            ? "فشل في إضافة الوصفة الطبية"
-            : "Failed to add prescription"
-        );
+      if (patientData) {
+        setPatientDetails({
+          notes: patientData.notes,
+          glassesPrescriptions: patientData.glassesPrescriptions,
+          contactLensPrescriptions: patientData.contactLensPrescriptions,
+        });
       }
+
+      toast.success(
+        language === "ar"
+          ? "تم إضافة الوصفة الطبية بنجاح"
+          : "Prescription added successfully"
+      );
     } catch (error) {
       console.error("Error saving prescription:", error);
       toast.error(
@@ -398,48 +390,43 @@ export const PatientSearch: React.FC = () => {
       const prescriptionData = {
         patient_id: selectedPatient.id,
         prescription_date: new Date().toISOString().split("T")[0],
-        od_sphere: rxData.rightEye.sphere,
-        od_cylinder: rxData.rightEye.cylinder,
-        od_axis: rxData.rightEye.axis,
-        od_base_curve: rxData.rightEye.bc,
-        od_diameter: rxData.rightEye.dia,
-        os_sphere: rxData.leftEye.sphere,
-        os_cylinder: rxData.leftEye.cylinder,
-        os_axis: rxData.leftEye.axis,
-        os_base_curve: rxData.leftEye.bc,
-        os_diameter: rxData.leftEye.dia,
+        od_sphere:
+          rxData.rightEye.sphere !== "-" ? rxData.rightEye.sphere : null,
+        od_cylinder:
+          rxData.rightEye.cylinder !== "-" ? rxData.rightEye.cylinder : null,
+        od_axis: rxData.rightEye.axis !== "-" ? rxData.rightEye.axis : null,
+        od_base_curve: rxData.rightEye.bc !== "-" ? rxData.rightEye.bc : null,
+        od_diameter: rxData.rightEye.dia !== "-" ? rxData.rightEye.dia : null,
+        os_sphere: rxData.leftEye.sphere !== "-" ? rxData.leftEye.sphere : null,
+        os_cylinder:
+          rxData.leftEye.cylinder !== "-" ? rxData.leftEye.cylinder : null,
+        os_axis: rxData.leftEye.axis !== "-" ? rxData.leftEye.axis : null,
+        os_base_curve: rxData.leftEye.bc !== "-" ? rxData.leftEye.bc : null,
+        os_diameter: rxData.leftEye.dia !== "-" ? rxData.leftEye.dia : null,
       };
 
       const result = await patientService.addContactLensPrescription(
         prescriptionData
       );
 
-      if (result) {
-        // Reload patient data to show the new prescription
-        const patientData = await patientService.getPatientById(
-          selectedPatient.id
-        );
+      // Reload patient data to show the new prescription
+      const patientData = await patientService.getPatientById(
+        selectedPatient.id
+      );
 
-        if (patientData) {
-          setPatientDetails({
-            notes: patientData.notes,
-            glassesPrescriptions: patientData.glassesPrescriptions,
-            contactLensPrescriptions: patientData.contactLensPrescriptions,
-          });
-        }
-
-        toast.success(
-          language === "ar"
-            ? "تم إضافة وصفة العدسات اللاصقة بنجاح"
-            : "Contact lens prescription added successfully"
-        );
-      } else {
-        toast.error(
-          language === "ar"
-            ? "فشل في إضافة وصفة العدسات اللاصقة"
-            : "Failed to add contact lens prescription"
-        );
+      if (patientData) {
+        setPatientDetails({
+          notes: patientData.notes,
+          glassesPrescriptions: patientData.glassesPrescriptions,
+          contactLensPrescriptions: patientData.contactLensPrescriptions,
+        });
       }
+
+      toast.success(
+        language === "ar"
+          ? "تم إضافة وصفة العدسات اللاصقة بنجاح"
+          : "Contact lens prescription added successfully"
+      );
     } catch (error) {
       console.error("Error saving contact lens prescription:", error);
       toast.error(

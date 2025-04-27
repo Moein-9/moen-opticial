@@ -11,7 +11,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
 interface AddContactLensRxDialogProps {
@@ -95,53 +94,9 @@ export const AddContactLensRxDialog: React.FC<AddContactLensRxDialogProps> = ({
     try {
       setIsSubmitting(true);
 
-      // Save to Supabase
-      const prescriptionData = {
-        patient_id: patientId,
-        prescription_date: new Date().toISOString().split("T")[0],
-        od_sphere:
-          formData.rightEye.sphere !== "-" ? formData.rightEye.sphere : null,
-        od_cylinder:
-          formData.rightEye.cylinder !== "-"
-            ? formData.rightEye.cylinder
-            : null,
-        od_axis: formData.rightEye.axis !== "-" ? formData.rightEye.axis : null,
-        od_base_curve:
-          formData.rightEye.bc !== "-" ? formData.rightEye.bc : null,
-        od_diameter:
-          formData.rightEye.dia !== "-" ? formData.rightEye.dia : null,
-        os_sphere:
-          formData.leftEye.sphere !== "-" ? formData.leftEye.sphere : null,
-        os_cylinder:
-          formData.leftEye.cylinder !== "-" ? formData.leftEye.cylinder : null,
-        os_axis: formData.leftEye.axis !== "-" ? formData.leftEye.axis : null,
-        os_base_curve: formData.leftEye.bc !== "-" ? formData.leftEye.bc : null,
-        os_diameter: formData.leftEye.dia !== "-" ? formData.leftEye.dia : null,
-      };
-
-      const { data, error } = await supabase
-        .from("contact_lens_prescriptions")
-        .insert(prescriptionData)
-        .select();
-
-      if (error) {
-        console.error("Error saving contact lens prescription:", error);
-        toast.error(
-          language === "ar"
-            ? "حدث خطأ أثناء حفظ الوصفة"
-            : "Error saving prescription"
-        );
-        return;
-      }
-
-      // Still call the original onSave function for backward compatibility
+      // Call the parent's onSave method which will handle saving to Supabase
       onSave(formData);
 
-      toast.success(
-        language === "ar"
-          ? "تم حفظ وصفة العدسات اللاصقة بنجاح"
-          : "Contact lens prescription saved successfully"
-      );
       onClose();
     } catch (error) {
       console.error("Error in save process:", error);

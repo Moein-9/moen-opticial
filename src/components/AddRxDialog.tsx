@@ -12,7 +12,6 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Save, Glasses, Eye, AlertTriangle } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
 interface AddRxDialogProps {
@@ -112,48 +111,12 @@ export const AddRxDialog: React.FC<AddRxDialogProps> = ({
     try {
       setIsSubmitting(true);
 
-      // Save to Supabase
-      const prescriptionData = {
-        patient_id: patientId,
-        prescription_date: new Date().toISOString().split("T")[0],
-        od_sph: rxData.sphereOD || null,
-        od_cyl: rxData.cylOD || null,
-        od_axis: rxData.axisOD || null,
-        od_add: rxData.addOD || null,
-        od_pd: rxData.pdRight || null,
-        os_sph: rxData.sphereOS || null,
-        os_cyl: rxData.cylOS || null,
-        os_axis: rxData.axisOS || null,
-        os_add: rxData.addOS || null,
-        os_pd: rxData.pdLeft || null,
-      };
-
-      const { data, error } = await supabase
-        .from("glasses_prescriptions")
-        .insert(prescriptionData)
-        .select();
-
-      if (error) {
-        console.error("Error saving prescription:", error);
-        toast.error(
-          language === "ar"
-            ? "حدث خطأ أثناء حفظ الوصفة"
-            : "Error saving prescription"
-        );
-        return;
-      }
-
-      // Still call the original onSave function for backward compatibility
+      // Call the parent's onSave method which will handle saving to Supabase
       onSave({
         ...rxData,
         createdAt: new Date().toISOString(),
       });
 
-      toast.success(
-        language === "ar"
-          ? "تم حفظ الوصفة بنجاح"
-          : "Prescription saved successfully"
-      );
       onClose();
     } catch (error) {
       console.error("Error in save process:", error);
