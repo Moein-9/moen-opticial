@@ -618,6 +618,19 @@ export const RemainingPayments: React.FC = () => {
       }
     };
 
+    // Calculate remaining amount based on total and all payments
+    const totalPaid =
+      invoice.payments?.reduce(
+        (sum, payment) => sum + (payment.amount || 0),
+        0
+      ) ||
+      invoice.deposit ||
+      0;
+
+    // Calculate if invoice is actually paid in full
+    const actualRemaining = Math.max(0, invoice.total - totalPaid);
+    const actualIsPaid = actualRemaining <= 0;
+
     return {
       // Map fields to expected format
       invoiceId: invoice.invoice_id,
@@ -648,13 +661,13 @@ export const RemainingPayments: React.FC = () => {
       servicePrice: invoice.service_price,
 
       discount: invoice.discount,
-      deposit: invoice.deposit,
+      deposit: totalPaid, // Use calculated total paid
       total: invoice.total,
-      remaining: invoice.remaining,
+      remaining: actualRemaining, // Use calculated remaining amount
 
       paymentMethod: invoice.payment_method,
       authNumber: invoice.auth_number,
-      isPaid: invoice.is_paid,
+      isPaid: actualIsPaid, // Use calculated paid status
       isRefunded: invoice.is_refunded,
       refundAmount: invoice.refund_amount,
       refundDate: ensureValidDate(invoice.refund_date),
