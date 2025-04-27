@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { format, parseISO } from "date-fns";
 import { enUS } from "date-fns/locale";
 import { useLanguageStore } from "@/store/languageStore";
@@ -56,6 +56,46 @@ export const PatientPrescriptionDisplay: React.FC<
   onPrintContactLensPrescription,
 }) => {
   const { language, t } = useLanguageStore();
+
+  // Get the latest glasses prescription (either current or most recent from history)
+  const latestGlassesPrescription = useMemo(() => {
+    if (!rxHistory || rxHistory.length === 0) return rx;
+
+    const sortedHistory = [...rxHistory].sort((a, b) => {
+      const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return dateB - dateA; // Sort descending (newest first)
+    });
+
+    const rxDate = rx.createdAt ? new Date(rx.createdAt).getTime() : 0;
+    const latestHistoryDate = sortedHistory[0].createdAt
+      ? new Date(sortedHistory[0].createdAt).getTime()
+      : 0;
+
+    return latestHistoryDate > rxDate ? sortedHistory[0] : rx;
+  }, [rx, rxHistory]);
+
+  // Get the latest contact lens prescription (either current or most recent from history)
+  const latestContactLensPrescription = useMemo(() => {
+    if (!contactLensRx) return null;
+    if (!contactLensRxHistory || contactLensRxHistory.length === 0)
+      return contactLensRx;
+
+    const sortedHistory = [...contactLensRxHistory].sort((a, b) => {
+      const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return dateB - dateA; // Sort descending (newest first)
+    });
+
+    const contactRxDate = contactLensRx.createdAt
+      ? new Date(contactLensRx.createdAt).getTime()
+      : 0;
+    const latestHistoryDate = sortedHistory[0].createdAt
+      ? new Date(sortedHistory[0].createdAt).getTime()
+      : 0;
+
+    return latestHistoryDate > contactRxDate ? sortedHistory[0] : contactLensRx;
+  }, [contactLensRx, contactLensRxHistory]);
 
   const formatDate = (dateString?: string) => {
     if (!dateString)
@@ -133,8 +173,8 @@ export const PatientPrescriptionDisplay: React.FC<
                     </h3>
                     <div className="text-xs text-indigo-600 flex items-center gap-1">
                       <Clock className="h-2.5 w-2.5" />
-                      {rx.createdAt
-                        ? formatDate(rx.createdAt)
+                      {latestGlassesPrescription.createdAt
+                        ? formatDate(latestGlassesPrescription.createdAt)
                         : language === "ar"
                         ? "تاريخ غير متوفر"
                         : "Date not available"}
@@ -170,19 +210,19 @@ export const PatientPrescriptionDisplay: React.FC<
                             : "Right Eye (OD)"}
                         </td>
                         <td className="font-medium p-1.5 text-xs">
-                          {rx.sphereOD || "-"}
+                          {latestGlassesPrescription.sphereOD || "-"}
                         </td>
                         <td className="font-medium p-1.5 text-xs">
-                          {rx.cylOD || "-"}
+                          {latestGlassesPrescription.cylOD || "-"}
                         </td>
                         <td className="font-medium p-1.5 text-xs">
-                          {rx.axisOD || "-"}
+                          {latestGlassesPrescription.axisOD || "-"}
                         </td>
                         <td className="font-medium p-1.5 text-xs">
-                          {rx.addOD || "-"}
+                          {latestGlassesPrescription.addOD || "-"}
                         </td>
                         <td className="font-medium p-1.5 text-xs">
-                          {rx.pdRight || "-"}
+                          {latestGlassesPrescription.pdRight || "-"}
                         </td>
                       </tr>
                       <tr className="bg-indigo-50/30">
@@ -192,19 +232,19 @@ export const PatientPrescriptionDisplay: React.FC<
                             : "Left Eye (OS)"}
                         </td>
                         <td className="font-medium p-1.5 text-xs">
-                          {rx.sphereOS || "-"}
+                          {latestGlassesPrescription.sphereOS || "-"}
                         </td>
                         <td className="font-medium p-1.5 text-xs">
-                          {rx.cylOS || "-"}
+                          {latestGlassesPrescription.cylOS || "-"}
                         </td>
                         <td className="font-medium p-1.5 text-xs">
-                          {rx.axisOS || "-"}
+                          {latestGlassesPrescription.axisOS || "-"}
                         </td>
                         <td className="font-medium p-1.5 text-xs">
-                          {rx.addOS || "-"}
+                          {latestGlassesPrescription.addOS || "-"}
                         </td>
                         <td className="font-medium p-1.5 text-xs">
-                          {rx.pdLeft || "-"}
+                          {latestGlassesPrescription.pdLeft || "-"}
                         </td>
                       </tr>
                     </tbody>
@@ -376,7 +416,7 @@ export const PatientPrescriptionDisplay: React.FC<
               </TabsList>
 
               <TabsContent value="current" className="mt-0 p-2">
-                {contactLensRx ? (
+                {latestContactLensPrescription ? (
                   <div className="bg-white rounded-lg overflow-hidden shadow-sm border border-green-100">
                     <div className="bg-gradient-to-r from-green-50 to-green-100 p-1.5 flex justify-between items-center">
                       <h3 className="font-medium text-green-700 flex items-center gap-1 text-xs">
@@ -387,8 +427,8 @@ export const PatientPrescriptionDisplay: React.FC<
                       </h3>
                       <div className="text-xs text-green-600 flex items-center gap-1">
                         <Clock className="h-2.5 w-2.5" />
-                        {contactLensRx.createdAt
-                          ? formatDate(contactLensRx.createdAt)
+                        {latestContactLensPrescription.createdAt
+                          ? formatDate(latestContactLensPrescription.createdAt)
                           : language === "ar"
                           ? "تاريخ غير متوفر"
                           : "Date not available"}
@@ -424,19 +464,21 @@ export const PatientPrescriptionDisplay: React.FC<
                               : "Right Eye (OD)"}
                           </td>
                           <td className="font-medium p-1.5 text-xs">
-                            {contactLensRx.rightEye.sphere || "-"}
+                            {latestContactLensPrescription.rightEye.sphere ||
+                              "-"}
                           </td>
                           <td className="font-medium p-1.5 text-xs">
-                            {contactLensRx.rightEye.cylinder || "-"}
+                            {latestContactLensPrescription.rightEye.cylinder ||
+                              "-"}
                           </td>
                           <td className="font-medium p-1.5 text-xs">
-                            {contactLensRx.rightEye.axis || "-"}
+                            {latestContactLensPrescription.rightEye.axis || "-"}
                           </td>
                           <td className="font-medium p-1.5 text-xs">
-                            {contactLensRx.rightEye.bc || "-"}
+                            {latestContactLensPrescription.rightEye.bc || "-"}
                           </td>
                           <td className="font-medium p-1.5 text-xs">
-                            {contactLensRx.rightEye.dia || "-"}
+                            {latestContactLensPrescription.rightEye.dia || "-"}
                           </td>
                         </tr>
                         <tr className="bg-green-50/30">
@@ -446,19 +488,21 @@ export const PatientPrescriptionDisplay: React.FC<
                               : "Left Eye (OS)"}
                           </td>
                           <td className="font-medium p-1.5 text-xs">
-                            {contactLensRx.leftEye.sphere || "-"}
+                            {latestContactLensPrescription.leftEye.sphere ||
+                              "-"}
                           </td>
                           <td className="font-medium p-1.5 text-xs">
-                            {contactLensRx.leftEye.cylinder || "-"}
+                            {latestContactLensPrescription.leftEye.cylinder ||
+                              "-"}
                           </td>
                           <td className="font-medium p-1.5 text-xs">
-                            {contactLensRx.leftEye.axis || "-"}
+                            {latestContactLensPrescription.leftEye.axis || "-"}
                           </td>
                           <td className="font-medium p-1.5 text-xs">
-                            {contactLensRx.leftEye.bc || "-"}
+                            {latestContactLensPrescription.leftEye.bc || "-"}
                           </td>
                           <td className="font-medium p-1.5 text-xs">
-                            {contactLensRx.leftEye.dia || "-"}
+                            {latestContactLensPrescription.leftEye.dia || "-"}
                           </td>
                         </tr>
                       </tbody>
@@ -480,7 +524,7 @@ export const PatientPrescriptionDisplay: React.FC<
                   </div>
                 )}
 
-                {contactLensRx && (
+                {latestContactLensPrescription && (
                   <div className="flex justify-end mt-2">
                     <Button
                       variant="outline"
