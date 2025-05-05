@@ -6,7 +6,7 @@ import {
   ClipboardCheck, Printer, Receipt, 
   Check, ChevronRight, FileText, PartyPopper,
   CreditCard, User, Phone, Calendar, AlertTriangle,
-  Contact, ScrollText, Glasses, Paintbrush
+  Contact, ScrollText, Glasses, Paintbrush, Wrench
 } from "lucide-react";
 import { CustomPrintService } from "@/utils/CustomPrintService";
 import { Invoice } from "@/store/invoiceStore";
@@ -239,6 +239,8 @@ export const InvoiceStepSummary: React.FC<InvoiceStepSummaryProps> = ({
                   <ScrollText className="w-5 h-5 text-blue-600 mr-2" />
                 ) : isContactLens ? (
                   <Contact className="w-5 h-5 text-blue-600 mr-2" />
+                ) : invoice.invoiceType === "repair" ? (
+                  <Wrench className="w-5 h-5 text-purple-600 mr-2" />
                 ) : (
                   <Glasses className="w-5 h-5 text-blue-600 mr-2" />
                 )}
@@ -249,7 +251,9 @@ export const InvoiceStepSummary: React.FC<InvoiceStepSummaryProps> = ({
                   ? (language === 'ar' ? 'فحص العين' : 'Eye Exam') 
                   : isContactLens 
                     ? t('contactLenses') 
-                    : t('glasses')}
+                    : invoice.invoiceType === "repair"
+                      ? (language === 'ar' ? 'خدمة الإصلاح' : 'Repair Service')
+                      : t('glasses')}
               </span>
             </div>
             

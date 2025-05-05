@@ -89,6 +89,28 @@ export const RepairSection: React.FC = () => {
     }
   }, [repairType, repairPrice, isLoading, isInitialized]);
 
+  // Ensure form values stay in sync with component state
+  useEffect(() => {
+    if (repairType) {
+      setValue("repairType", repairType);
+      setValue("serviceName", repairType);
+    }
+    
+    if (repairPrice > 0) {
+      setValue("repairPrice", repairPrice);
+      setValue("servicePrice", repairPrice);
+    }
+    
+    if (repairDescription) {
+      setValue("repairDescription", repairDescription);
+      setValue("serviceDescription", repairDescription);
+    }
+    
+    // Always ensure invoice type is set to repair
+    setValue("invoiceType", "repair");
+    
+  }, [repairType, repairPrice, repairDescription, setValue]);
+
   const handleRepairPriceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const price = parseFloat(e.target.value) || 0;
     setRepairPrice(price);
@@ -113,6 +135,8 @@ export const RepairSection: React.FC = () => {
   const applyRepairService = (service: ServiceItem) => {
     setRepairType(service.name);
     setRepairPrice(service.price);
+    
+    // Set all necessary form values
     setValue("repairType", service.name);
     setValue("repairPrice", service.price);
     setValue("serviceName", service.name);

@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useState, useCallback } from "react";
 
 // Make sure all fields used in the components are included in this interface
@@ -224,9 +223,20 @@ export const InvoiceFormProvider: React.FC<{ children: React.ReactNode }> = ({ c
       } else if (formData.invoiceType === 'contacts' && (!formData.contactLensItems || formData.contactLensItems.length === 0)) {
         // For contacts, at least one item is required
         return false;
-      } else if (formData.invoiceType === 'repair' && !formData.repairType) {
-        // For repair, require at least the repair type
-        return false;
+      } else if (formData.invoiceType === 'repair') {
+        // For repair, require repair type and price
+        if (!formData.repairType || formData.repairPrice <= 0) {
+          return false;
+        }
+        
+        // Also ensure serviceName and servicePrice are set correctly
+        if (formData.serviceName !== formData.repairType || formData.servicePrice !== formData.repairPrice) {
+          // Sync these values if they aren't matching
+          formData.serviceName = formData.repairType;
+          formData.servicePrice = formData.repairPrice;
+        }
+        
+        return true;
       }
       // For exam, we don't need to validate anything specific
       return true;
