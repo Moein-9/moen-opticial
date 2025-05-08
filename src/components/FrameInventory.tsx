@@ -517,12 +517,12 @@ export const FrameInventory: React.FC = () => {
     init();
   }, []);
 
-  // Update search results when frames change
+  // Update search results when frames change, but don't override search results
   useEffect(() => {
-    if (!isSearching && !isLoadingFrames) {
+    if (!isSearching && !isLoadingFrames && frameSearchTerm.trim() === '') {
       setSearchResults(frames);
     }
-  }, [frames, isSearching, isLoadingFrames]);
+  }, [frames, isSearching, isLoadingFrames, frameSearchTerm]);
 
   const isRtl = language === "ar";
   const dirClass = isRtl ? "rtl" : "ltr";
