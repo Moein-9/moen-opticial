@@ -155,7 +155,8 @@ export const useInventoryStore = create<InventoryState>()(
       fetchFrames: async () => {
         set({ isLoadingFrames: true });
         try {
-          const frames = await frameService.getAllFrames();
+          // Use the paginated version to get all frames
+          const frames = await frameService.getAllFramesPaginated();
           set({ frames, isLoadingFrames: false });
         } catch (error) {
           console.error("Error fetching frames:", error);
@@ -211,8 +212,8 @@ export const useInventoryStore = create<InventoryState>()(
         // If empty query, return all loaded frames
         if (!query.trim()) return get().frames;
         
-        // Get results from Supabase
-        return await frameService.searchFrames(query);
+        // Get all results from Supabase with pagination
+        return await frameService.paginatedSearchFrames(query);
       },
       
       getFrameById: async (id) => {
