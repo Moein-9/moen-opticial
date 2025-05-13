@@ -244,6 +244,19 @@ export const DailySalesReport: React.FC = () => {
           return;
         }
 
+        // Fetch invoices with payments made today (not necessarily created today)
+        // @ts-ignore - Supabase type definitions may be incomplete for our schema
+        const { data: paymentsData, error: paymentsError } = await supabase
+          .from("invoices")
+          .select("*")
+          .neq("payments", null);
+
+        if (paymentsError) {
+          console.error("Error fetching invoices with payments:", paymentsError);
+          toast.error("Failed to fetch payment data");
+          return;
+        }
+
         // Parse JSON fields
         const parsedSalesData = salesData.map((invoice: any) => ({
           ...invoice,
@@ -258,6 +271,18 @@ export const DailySalesReport: React.FC = () => {
         }));
 
         const parsedRefundsData = refundsData.map((invoice: any) => ({
+          ...invoice,
+          contact_lens_items:
+            typeof invoice.contact_lens_items === "string"
+              ? JSON.parse(invoice.contact_lens_items)
+              : invoice.contact_lens_items,
+          payments:
+            typeof invoice.payments === "string"
+              ? JSON.parse(invoice.payments)
+              : invoice.payments || [],
+        }));
+
+        const parsedPaymentsData = paymentsData.map((invoice: any) => ({
           ...invoice,
           contact_lens_items:
             typeof invoice.contact_lens_items === "string"
@@ -315,10 +340,77 @@ export const DailySalesReport: React.FC = () => {
             0
           );
 
-        // Calculate deposit received
-        const depositsTotal = parsedSalesData
+        // Calculate all payments received today
+        let todaysPayments: {
+          method: string;
+          amount: number;
+          count: number;
+          invoiceId: string;
+        }[] = [];
+        
+        // First add initial deposits from invoices created today
+        parsedSalesData
           .filter((invoice: Invoice) => !invoice.is_refunded)
-          .reduce((sum: number, invoice: Invoice) => sum + invoice.deposit, 0);
+          .forEach((invoice: Invoice) => {
+            // If the invoice has no payments array but has deposit, count it as a single payment
+            if ((!invoice.payments || invoice.payments.length === 0) && invoice.deposit > 0) {
+              todaysPayments.push({
+                method: invoice.payment_method || "Unknown",
+                amount: invoice.deposit,
+                count: 1,
+                invoiceId: invoice.invoice_id
+              });
+            } 
+            // If it has payments array, add only today's payments
+            else if (invoice.payments && invoice.payments.length > 0) {
+              invoice.payments.forEach((payment: any) => {
+                const paymentDate = new Date(payment.date);
+                if (
+                  paymentDate >= startOfDay &&
+                  paymentDate <= endOfDay
+                ) {
+                  todaysPayments.push({
+                    method: payment.method || invoice.payment_method || "Unknown",
+                    amount: payment.amount || 0,
+                    count: 1,
+                    invoiceId: invoice.invoice_id
+                  });
+                }
+              });
+            }
+          });
+        
+        // Then add payments from other invoices that have payments made today
+        parsedPaymentsData
+          .filter((invoice: Invoice) => 
+            !invoice.is_refunded && 
+            // Skip invoices already processed (created today)
+            !parsedSalesData.some(todayInvoice => todayInvoice.invoice_id === invoice.invoice_id)
+          )
+          .forEach((invoice: Invoice) => {
+            if (invoice.payments && invoice.payments.length > 0) {
+              invoice.payments.forEach((payment: any) => {
+                const paymentDate = new Date(payment.date);
+                if (
+                  paymentDate >= startOfDay &&
+                  paymentDate <= endOfDay
+                ) {
+                  todaysPayments.push({
+                    method: payment.method || invoice.payment_method || "Unknown",
+                    amount: payment.amount || 0,
+                    count: 1,
+                    invoiceId: invoice.invoice_id
+                  });
+                }
+              });
+            }
+          });
+
+        // Calculate total deposits
+        const depositsTotal = todaysPayments.reduce(
+          (sum: number, payment) => sum + payment.amount, 
+          0
+        );
 
         // Calculate refund total
         const refundsTotal = parsedRefundsData.reduce(
@@ -331,15 +423,13 @@ export const DailySalesReport: React.FC = () => {
           [key: string]: { amount: number; count: number };
         } = {};
 
-        parsedSalesData.forEach((invoice: Invoice) => {
-          if (invoice.is_refunded) return;
-
-          const method = invoice.payment_method || "Unknown";
+        todaysPayments.forEach((payment) => {
+          const method = payment.method;
           if (!paymentMethods[method]) {
             paymentMethods[method] = { amount: 0, count: 0 };
           }
 
-          paymentMethods[method].amount += invoice.deposit;
+          paymentMethods[method].amount += payment.amount;
           paymentMethods[method].count += 1;
         });
 
