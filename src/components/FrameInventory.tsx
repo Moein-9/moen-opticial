@@ -4,7 +4,6 @@ import {
   FrameItem,
   initInventoryStore,
 } from "@/store/inventoryStore";
-import * as frameService from "@/services/frameService"; // Add this import
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -194,11 +193,6 @@ export const FrameInventory: React.FC = () => {
   const [processedItems, setProcessedItems] = useState(0);
   const [totalItemsToProcess, setTotalItemsToProcess] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  
-  // New state variables for paginated loading
-  const [isLoadingPaginated, setIsLoadingPaginated] = useState(false);
-  const [loadingProgress, setLoadingProgress] = useState(0);
-  const [loadingTotal, setLoadingTotal] = useState(0);
 
   const [frameBrand, setFrameBrand] = useState("");
   const [frameModel, setFrameModel] = useState("");
@@ -514,39 +508,10 @@ export const FrameInventory: React.FC = () => {
   };
 
   useEffect(() => {
-    // Initialize by loading frames from Supabase on component mount with pagination
+    // Initialize by loading frames from Supabase on component mount
     const init = async () => {
-      setIsLoadingPaginated(true);
-      setLoadingProgress(0);
-      
-      try {
-        // Use direct API calls to show progress during pagination
-        const pageSize = 1000;
-        let page = 0;
-        let allFrames: FrameItem[] = [];
-        let hasMore = true;
-        
-        while (hasMore) {
-          const frames = await frameService.getAllFrames({ page, pageSize });
-          allFrames = [...allFrames, ...frames];
-          
-          setLoadingProgress(page + 1);
-          
-          // If we got fewer items than the page size, we've reached the end
-          if (frames.length < pageSize) {
-            hasMore = false;
-          } else {
-            page++;
-          }
-        }
-        
-        setSearchResults(allFrames);
-      } catch (error) {
-        console.error('Error fetching frames:', error);
-        toast.error(t("errorFetchingFrames") || "Error fetching frames");
-      } finally {
-        setIsLoadingPaginated(false);
-      }
+      await initInventoryStore();
+      setSearchResults(frames);
     };
 
     init();
@@ -632,31 +597,7 @@ export const FrameInventory: React.FC = () => {
         </div>
       </div>
 
-      {isLoadingPaginated ? (
-        <div className="flex flex-col justify-center items-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
-          <p className="text-lg font-medium">
-            {isRtl ? "جاري تحميل الإطارات..." : "Loading frames..."}
-          </p>
-          <div className="w-64 mt-4">
-            <div className="flex justify-between text-xs text-muted-foreground mb-1">
-              <span>{isRtl ? "صفحة:" : "Page:"} {loadingProgress}</span>
-              <span>{isRtl ? "جاري التحميل" : "Loading..."}</span>
-            </div>
-            <div className="w-full bg-muted rounded-full h-2.5">
-              <div
-                className="bg-primary h-2.5 rounded-full transition-all duration-300"
-                style={{
-                  width: `${Math.min(loadingProgress * 10, 100)}%`,
-                }}
-              ></div>
-            </div>
-            <p className="text-xs text-center text-muted-foreground mt-2">
-              {isRtl ? "تم تحميل" : "Loaded"} {loadingProgress * 1000}+ {isRtl ? "إطار" : "frames"}
-            </p>
-          </div>
-        </div>
-      ) : isLoadingFrames ? (
+      {isLoadingFrames ? (
         <div className="flex justify-center items-center py-12">
           <Loader2 className="h-8 w-8 animate-spin text-primary mr-2" />
           <p className="text-lg font-medium">

@@ -2,26 +2,14 @@ import { supabase } from '@/integrations/supabase/client';
 import { Frame, FrameInsert, FrameUpdate } from '@/integrations/supabase/schema';
 
 /**
- * Fetches all frames from the database with pagination
+ * Fetches all frames from the database
  */
-export async function getAllFrames(options = { 
-  page: 0, 
-  pageSize: 1000 
-}): Promise<Frame[]> {
+export async function getAllFrames(): Promise<Frame[]> {
   try {
-    let query = supabase
+    const { data, error } = await supabase
       .from('frames')
       .select('*')
       .order('brand', { ascending: true });
-    
-    // Apply pagination if provided
-    if (options.page !== undefined && options.pageSize) {
-      const start = options.page * options.pageSize;
-      const end = start + options.pageSize - 1;
-      query = query.range(start, end);
-    }
-
-    const { data, error } = await query;
 
     if (error) {
       console.error('Error fetching frames:', error);
@@ -36,60 +24,20 @@ export async function getAllFrames(options = {
 }
 
 /**
- * Fetches all frames by making multiple paginated requests if needed
+ * Search frames by brand, model, color, or size
  */
-export async function getAllFramesPaginated(): Promise<Frame[]> {
-  const pageSize = 1000;
-  let page = 0;
-  let allFrames: Frame[] = [];
-  let hasMore = true;
-
-  try {
-    while (hasMore) {
-      const frames = await getAllFrames({ page, pageSize });
-      allFrames = [...allFrames, ...frames];
-      
-      // If we got fewer items than the page size, we've reached the end
-      if (frames.length < pageSize) {
-        hasMore = false;
-      } else {
-        page++;
-      }
-    }
-    
-    return allFrames;
-  } catch (error) {
-    console.error('Error fetching all paginated frames:', error);
-    return allFrames; // Return what we have so far
-  }
-}
-
-/**
- * Search frames by brand, model, color, or size with pagination
- */
-export async function searchFrames(query: string, options = { 
-  page: 0, 
-  pageSize: 1000 
-}): Promise<Frame[]> {
-  if (!query || query.trim() === '') return getAllFrames(options);
+export async function searchFrames(query: string): Promise<Frame[]> {
+  if (!query || query.trim() === '') return getAllFrames();
 
   const searchTerm = `%${query.toLowerCase()}%`;
 
   try {
-    let dbQuery = supabase
+    // Search frames by brand, model, color, or size using ilike for case-insensitive matching
+    const { data, error } = await supabase
       .from('frames')
       .select('*')
       .or(`brand.ilike.${searchTerm},model.ilike.${searchTerm},color.ilike.${searchTerm},size.ilike.${searchTerm}`)
       .order('brand', { ascending: true });
-    
-    // Apply pagination if provided
-    if (options.page !== undefined && options.pageSize) {
-      const start = options.page * options.pageSize;
-      const end = start + options.pageSize - 1;
-      dbQuery = dbQuery.range(start, end);
-    }
-
-    const { data, error } = await dbQuery;
 
     if (error) {
       console.error('Error searching frames:', error);
@@ -100,37 +48,6 @@ export async function searchFrames(query: string, options = {
   } catch (error) {
     console.error('Unexpected error searching frames:', error);
     return [];
-  }
-}
-
-/**
- * Search all frames with pagination support, fetching all results
- */
-export async function paginatedSearchFrames(query: string): Promise<Frame[]> {
-  if (!query || query.trim() === '') return getAllFramesPaginated();
-  
-  const pageSize = 1000;
-  let page = 0;
-  let allFrames: Frame[] = [];
-  let hasMore = true;
-
-  try {
-    while (hasMore) {
-      const frames = await searchFrames(query, { page, pageSize });
-      allFrames = [...allFrames, ...frames];
-      
-      // If we got fewer items than the page size, we've reached the end
-      if (frames.length < pageSize) {
-        hasMore = false;
-      } else {
-        page++;
-      }
-    }
-    
-    return allFrames;
-  } catch (error) {
-    console.error('Error searching all frames with pagination:', error);
-    return allFrames; // Return what we have so far
   }
 }
 
@@ -240,12 +157,19 @@ export async function bulkImportFrames(frames: Array<Omit<FrameInsert, 'frameId'
   let errors = 0;
   
   try {
-    // Get all existing frames to check for duplicates - use pagination to get all frames
-    const existingFrames = await getAllFramesPaginated();
+    // Get all existing frames to check for duplicates
+    const { data: existingFrames, error: fetchError } = await supabase
+      .from('frames')
+      .select('brand, model, color, size');
+      
+    if (fetchError) {
+      console.error('Error fetching existing frames:', fetchError);
+      return { added: 0, duplicates: 0, errors: 1 };
+    }
     
     // Create a map of existing frames for faster lookup
     const existingFrameMap = new Map();
-    existingFrames.forEach(frame => {
+    (existingFrames || []).forEach(frame => {
       const key = `${frame.brand.toLowerCase()}-${frame.model.toLowerCase()}-${frame.color.toLowerCase()}-${frame.size.toLowerCase()}`;
       existingFrameMap.set(key, true);
     });
@@ -296,4 +220,4 @@ export async function bulkImportFrames(frames: Array<Omit<FrameInsert, 'frameId'
  */
 export async function updateFrameQuantity(frameId: string, newQty: number): Promise<boolean> {
   return updateFrame(frameId, { qty: newQty });
-}
+} 
