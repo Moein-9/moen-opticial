@@ -5,18 +5,9 @@ import { Payment } from "@/store/invoiceStore";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-  CardFooter,
-} from "@/components/ui/card";
-import {
   Receipt,
   Wallet,
   CreditCard,
-  Printer,
   CheckCircle2,
   User,
   Phone,
@@ -24,17 +15,18 @@ import {
   Eye,
   Frame,
   Droplets,
-  ArrowRight,
   Tag,
   Search,
-  Filter,
   Plus,
   Trash2,
   Eye as EyeIcon,
-  FileText,
   UserCircle,
-  History,
   Loader2,
+  Banknote,
+  ChevronDown,
+  Clock,
+  AlertTriangle,
+  Wallet2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -55,13 +47,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { useNavigate } from "react-router-dom";
 import { ReceiptInvoice } from "./ReceiptInvoice";
 import { useLanguageStore } from "@/store/languageStore";
@@ -124,8 +114,33 @@ interface Invoice {
   payments?: Payment[];
 }
 
+/** Returns the age of an invoice in whole days. */
+const getInvoiceAgeInDays = (createdAt: string): number => {
+  try {
+    const created = new Date(createdAt).getTime();
+    if (isNaN(created)) return 0;
+    const diff = Date.now() - created;
+    return Math.max(0, Math.floor(diff / (1000 * 60 * 60 * 24)));
+  } catch {
+    return 0;
+  }
+};
+
+/** Small pill icon picker for each payment method. */
+const PaymentMethodIcon: React.FC<{ method: string }> = ({ method }) => {
+  const m = (method || "").toLowerCase();
+  if (m.includes("cash") || method === "نقداً") {
+    return <Banknote className="h-3.5 w-3.5 text-emerald-600" />;
+  }
+  if (m.includes("knet") || method === "كي نت") {
+    return <Wallet2 className="h-3.5 w-3.5 text-sky-600" />;
+  }
+  return <CreditCard className="h-3.5 w-3.5 text-indigo-600" />;
+};
+
 export const RemainingPayments: React.FC = () => {
   const { language, t } = useLanguageStore();
+  const isRtl = language === "ar";
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
@@ -141,6 +156,93 @@ export const RemainingPayments: React.FC = () => {
   const [paymentEntries, setPaymentEntries] = useState<
     { method: string; amount: number; authNumber?: string }[]
   >([{ method: language === "ar" ? "نقداً" : "Cash", amount: 0 }]);
+
+  // Delete dialog state — lets the manager either refund the whole invoice
+  // (reverses the deposit out of revenue) or write off just the remaining
+  // balance (keeps the deposit as income, marks invoice as fully paid).
+  const [deleteTarget, setDeleteTarget] = useState<Invoice | null>(null);
+  const [deleteMode, setDeleteMode] = useState<"full" | "remaining" | null>(
+    null
+  );
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleteError, setDeleteError] = useState("");
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const resetDeleteDialog = () => {
+    setDeleteTarget(null);
+    setDeleteMode(null);
+    setDeletePassword("");
+    setDeleteError("");
+    setIsDeleting(false);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget || !deleteMode) return;
+    const expected = import.meta.env.VITE_ADMIN_PASSWORD || "";
+    if (!expected || deletePassword !== expected) {
+      setDeleteError(
+        language === "ar"
+          ? "كلمة مرور المدير غير صحيحة. يُرجى طلبها من المدير."
+          : "Incorrect admin password. Ask your manager."
+      );
+      return;
+    }
+    setIsDeleting(true);
+    try {
+      if (deleteMode === "full") {
+        // Archive the invoice + treat the deposit as a refund so reports
+        // subtract it from today's revenue. The payments[] array is kept
+        // intact (audit trail) — downstream cash-basis reporting ignores
+        // invoices flagged `is_refunded`.
+        // @ts-ignore
+        const { error } = await supabase
+          .from("invoices")
+          .update({
+            is_archived: true,
+            archived_at: new Date().toISOString(),
+            is_refunded: true,
+            refund_amount: Number(deleteTarget.deposit) || 0,
+            refund_date: new Date().toISOString(),
+            refund_method: deleteTarget.payment_method || "Cash",
+            refund_id: `RF${Date.now()}`,
+          })
+          .eq("invoice_id", deleteTarget.invoice_id);
+        if (error) throw error;
+        toast.success(
+          language === "ar"
+            ? "تم حذف الفاتورة وإرجاع الدفعة"
+            : "Invoice deleted, deposit refunded"
+        );
+      } else {
+        // Write-off: keep deposit as collected revenue, force remaining to
+        // zero, flip to paid. Original `total` is preserved for audit, but
+        // since `remaining = 0` the invoice no longer shows up on this
+        // Remaining Payments page.
+        // @ts-ignore
+        const { error } = await supabase
+          .from("invoices")
+          .update({
+            remaining: 0,
+            is_paid: true,
+          })
+          .eq("invoice_id", deleteTarget.invoice_id);
+        if (error) throw error;
+        toast.success(
+          language === "ar"
+            ? "تم إعفاء المتبقي. تم الاحتفاظ بالدفعة."
+            : "Remaining balance written off. Deposit kept."
+        );
+      }
+      resetDeleteDialog();
+      await loadUnpaidInvoices();
+    } catch (e) {
+      console.error("Delete invoice failed:", e);
+      toast.error(
+        language === "ar" ? "حدث خطأ أثناء الحذف" : "Error while deleting"
+      );
+      setIsDeleting(false);
+    }
+  };
 
   useEffect(() => {
     loadUnpaidInvoices();
@@ -293,6 +395,12 @@ export const RemainingPayments: React.FC = () => {
     const dateB = new Date(b.created_at).getTime();
     return sortOrder === "desc" ? dateB - dateA : dateA - dateB;
   });
+
+  /** Total across all outstanding invoices — shown in the header summary chip. */
+  const totalOutstanding = invoices.reduce(
+    (sum, inv) => sum + (inv.remaining || 0),
+    0
+  );
 
   const goToPatientProfile = (
     patientId?: string,
@@ -687,668 +795,943 @@ export const RemainingPayments: React.FC = () => {
     };
   };
 
-  return (
-    <div className={`space-y-6 py-4 ${dirClass}`}>
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <h2 className={`text-2xl font-bold ${textAlignClass}`}>
-            {t("remainingPayments")}
-          </h2>
-          <p className={`text-muted-foreground ${textAlignClass}`}>
-            {t("duePayments")}
-          </p>
-        </div>
+  const invoiceCount = filteredInvoices.length;
+  const hasAny = invoiceCount > 0;
 
-        <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
-          <div className="relative w-full sm:w-64">
-            <Search
-              className={`absolute ${
-                language === "ar" ? "left-2.5" : "right-2.5"
-              } top-2.5 h-4 w-4 text-muted-foreground`}
-            />
-            <Input
-              placeholder={
-                language === "ar"
-                  ? "البحث عن عميل أو رقم فاتورة..."
-                  : "Search for client or invoice number..."
-              }
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className={language === "ar" ? "pl-8 w-full" : "pr-8 w-full"}
-            />
+  return (
+    <div className={`min-h-full bg-stone-50 ${dirClass}`}>
+      <div className="max-w-7xl mx-auto px-4 md:px-6 py-6 md:py-8 space-y-6">
+        {/* Page header */}
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+          <div className={textAlignClass}>
+            <div className="flex items-center gap-2 text-sm text-slate-500 mb-2">
+              <Wallet className="h-4 w-4 text-amber-600" />
+              <span className="font-medium">{t("remainingPayments")}</span>
+            </div>
+            <h2 className="text-2xl md:text-3xl font-semibold text-slate-900 tracking-tight">
+              {t("duePayments")}
+            </h2>
+            {/* Summary chip — total owed across all invoices */}
+            {!isLoading && invoices.length > 0 && (
+              <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-amber-50 border border-amber-200 px-3 py-1.5">
+                <span className="text-xs font-semibold text-amber-800 uppercase tracking-wide">
+                  {t("totalOwed")}
+                </span>
+                <span className="text-sm font-bold text-amber-900 tabular-nums">
+                  {totalOutstanding.toFixed(2)} {t("kwd")}
+                </span>
+                <span className="text-xs text-amber-700">
+                  ·{" "}
+                  {invoices.length}{" "}
+                  {invoices.length === 1
+                    ? t("invoiceOutstanding")
+                    : t("invoicesOutstanding")}
+                </span>
+              </div>
+            )}
           </div>
 
-          <Select
-            value={sortOrder}
-            onValueChange={(value) => setSortOrder(value as "asc" | "desc")}
-          >
-            <SelectTrigger className="w-full sm:w-40">
-              <SelectValue
-                placeholder={language === "ar" ? "ترتيب حسب" : "Sort by"}
+          {/* Search and sort controls */}
+          <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
+            <div className="relative w-full sm:w-80">
+              <Search
+                className={`absolute ${
+                  language === "ar" ? "right-4" : "left-4"
+                } top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400 pointer-events-none`}
               />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="desc">
-                {language === "ar" ? "الأحدث أولاً" : "Newest first"}
-              </SelectItem>
-              <SelectItem value="asc">
-                {language === "ar" ? "الأقدم أولاً" : "Oldest first"}
-              </SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
+              <Input
+                placeholder={t("searchClientOrInvoice")}
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className={`h-12 w-full bg-white border-slate-200 rounded-xl text-base shadow-sm focus-visible:ring-slate-300 focus-visible:border-slate-300 ${
+                  language === "ar" ? "pe-12 ps-4" : "ps-12 pe-4"
+                }`}
+              />
+            </div>
 
-      {isLoading ? (
-        <div className="flex justify-center items-center py-20">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <span className="ml-2 text-lg">
-            {language === "ar" ? "جارٍ التحميل..." : "Loading..."}
-          </span>
-        </div>
-      ) : filteredInvoices.length === 0 && !lastPaidInvoice ? (
-        <Card className="border-dashed border-2 border-muted">
-          <CardContent className="flex flex-col items-center justify-center py-12">
-            <CheckCircle2 className="h-12 w-12 text-muted mb-4" />
-            <h3 className="text-xl font-medium mb-2">
-              {language === "ar"
-                ? "جميع الفواتير مدفوعة بالكامل"
-                : "All invoices fully paid"}
-            </h3>
-            <p className="text-muted-foreground text-center max-w-md">
-              {language === "ar"
-                ? "لا توجد فواتير تحتاج إلى دفعات متبقية. جميع المعاملات مكتملة."
-                : "No invoices require remaining payments. All transactions are complete."}
-            </p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredInvoices.map((invoice) => (
-            <Card
-              key={invoice.invoice_id}
-              className="overflow-hidden border border-amber-200 hover:border-amber-300 transition-all duration-200"
+            <Select
+              value={sortOrder}
+              onValueChange={(value) => setSortOrder(value as "asc" | "desc")}
             >
-              <CardHeader className="bg-gradient-to-r from-amber-50 to-amber-100 py-4">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <CardTitle className="text-lg font-bold">
-                      {invoice.patient_name}
-                    </CardTitle>
-                    <p className="text-sm text-muted-foreground">
-                      {invoice.invoice_id}
-                    </p>
-                  </div>
-                  <Badge
-                    variant="outline"
-                    className="bg-amber-100 text-amber-800 border-amber-300 text-xl font-bold px-4 py-1.5"
-                  >
-                    {language === "ar" ? "متبقي" : "Remaining"}{" "}
-                    {invoice.remaining.toFixed(2)} {t("kwd")}
-                  </Badge>
-                </div>
-              </CardHeader>
+              <SelectTrigger className="h-12 w-full sm:w-44 bg-white border-slate-200 rounded-xl text-base shadow-sm">
+                <SelectValue placeholder={t("sortBy")} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="desc">{t("newestFirst")}</SelectItem>
+                <SelectItem value="asc">{t("oldestFirst")}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
 
-              <CardContent className="pt-4 space-y-4">
-                <div className="flex justify-between text-sm">
-                  <div className="flex items-center gap-1">
-                    <Phone className="h-4 w-4 text-muted-foreground" />
-                    <span>{invoice.patient_phone}</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Calendar className="h-4 w-4 text-muted-foreground" />
-                    <span>
-                      {new Date(invoice.created_at).toLocaleDateString(
-                        language === "ar" ? "ar-EG" : "en-US"
-                      )}
-                    </span>
-                  </div>
-                </div>
+        {/* Content area */}
+        {isLoading ? (
+          <div className="flex justify-center items-center py-24">
+            <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
+            <span className="ms-3 text-lg text-slate-500">
+              {t("loading")}...
+            </span>
+          </div>
+        ) : !hasAny && !lastPaidInvoice ? (
+          /* Empty state — warm, friendly */
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm px-6 py-16 flex flex-col items-center justify-center text-center">
+            <div className="w-20 h-20 rounded-2xl bg-emerald-50 flex items-center justify-center mb-5">
+              <CheckCircle2 className="h-10 w-10 text-emerald-600" />
+            </div>
+            <h3 className="text-xl md:text-2xl font-semibold text-slate-900 mb-2">
+              {t("allPaymentsCollected")}
+            </h3>
+            <p className="text-slate-500 max-w-md leading-relaxed">
+              {t("noOutstandingBalances")}
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-5">
+            {filteredInvoices.map((invoice) => {
+              const ageDays = getInvoiceAgeInDays(invoice.created_at);
+              const isOverdue = ageDays >= 14;
+              const paidPct =
+                invoice.total > 0
+                  ? Math.min(
+                      100,
+                      Math.max(0, (invoice.deposit / invoice.total) * 100)
+                    )
+                  : 0;
 
-                <Accordion
-                  type="single"
-                  collapsible
-                  className="w-full border rounded-md"
+              return (
+                <div
+                  key={invoice.invoice_id}
+                  className={`group bg-white rounded-2xl shadow-sm border transition-all duration-200 hover:shadow-md flex flex-col ${
+                    isOverdue
+                      ? "border-amber-300 ring-1 ring-amber-100"
+                      : "border-slate-200 hover:border-slate-300"
+                  }`}
                 >
-                  <AccordionItem value="item-1">
-                    <AccordionTrigger className="px-3 text-sm font-medium">
-                      {language === "ar" ? "تفاصيل النظارة" : "Glasses Details"}
-                    </AccordionTrigger>
-                    <AccordionContent className="px-3 pb-3 text-sm">
-                      <div className="space-y-1.5">
-                        <div className="flex items-center gap-1.5">
-                          <EyeIcon className="h-3.5 w-3.5 text-blue-500" />
-                          <span>
-                            {language === "ar" ? "نوع العدسة:" : "Lens Type:"}
+                  {/* Card header — name + hero remaining amount */}
+                  <div className="p-5 pb-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <h3 className="text-lg font-bold text-slate-900 leading-tight truncate">
+                          {invoice.patient_name}
+                        </h3>
+                        <p className="text-sm text-slate-500 tabular-nums mt-0.5">
+                          {invoice.invoice_id}
+                        </p>
+                      </div>
+
+                      <div className="flex flex-col items-end shrink-0 text-end">
+                        <span className="text-xs font-semibold text-amber-700 uppercase tracking-wide">
+                          {t("remainingAmount")}
+                        </span>
+                        <div className="flex items-baseline gap-1 mt-0.5">
+                          <span className="text-2xl font-bold text-amber-700 tabular-nums">
+                            {invoice.remaining.toFixed(2)}
                           </span>
-                          <span className="font-medium">
-                            {invoice.lens_type}
+                          <span className="text-sm font-medium text-amber-600">
+                            {t("kwd")}
                           </span>
                         </div>
+                      </div>
+                    </div>
 
-                        {invoice.frame_brand && (
-                          <div className="flex items-center gap-1.5">
-                            <Frame className="h-3.5 w-3.5 text-gray-500" />
-                            <span>
-                              {language === "ar" ? "الإطار:" : "Frame:"}
+                    {/* Meta row: phone, date, overdue flag */}
+                    <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-slate-500">
+                      {invoice.patient_phone && (
+                        <div className="inline-flex items-center gap-1.5">
+                          <Phone className="h-3.5 w-3.5 text-slate-400" />
+                          <span className="tabular-nums" dir="ltr">
+                            {invoice.patient_phone}
+                          </span>
+                        </div>
+                      )}
+                      <div className="inline-flex items-center gap-1.5">
+                        <Calendar className="h-3.5 w-3.5 text-slate-400" />
+                        <span>
+                          {new Date(invoice.created_at).toLocaleDateString(
+                            language === "ar" ? "ar-EG" : "en-US"
+                          )}
+                        </span>
+                      </div>
+                      {isOverdue && (
+                        <div className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 font-semibold">
+                          <AlertTriangle className="h-3 w-3" />
+                          <span>
+                            {ageDays} {t("daysOld")}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Body divider */}
+                  <div className="border-t border-slate-100" />
+
+                  {/* Totals breakdown + progress bar */}
+                  <div className="px-5 py-4 space-y-3">
+                    <div className="grid grid-cols-3 gap-2">
+                      <div>
+                        <p className="text-[11px] text-slate-500 font-semibold uppercase tracking-wide">
+                          {t("invoiceTotal")}
+                        </p>
+                        <p className="text-base font-semibold text-slate-900 tabular-nums mt-0.5">
+                          {invoice.total.toFixed(2)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[11px] text-emerald-700 font-semibold uppercase tracking-wide">
+                          {t("paidSoFar")}
+                        </p>
+                        <p className="text-base font-semibold text-emerald-700 tabular-nums mt-0.5">
+                          {invoice.deposit.toFixed(2)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[11px] text-amber-700 font-semibold uppercase tracking-wide">
+                          {t("remainingAmount")}
+                        </p>
+                        <p className="text-base font-semibold text-amber-700 tabular-nums mt-0.5">
+                          {invoice.remaining.toFixed(2)}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Progress bar: % paid */}
+                    <div
+                      className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden"
+                      role="progressbar"
+                      aria-valuenow={Math.round(paidPct)}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                    >
+                      <div
+                        className="h-full bg-emerald-500 rounded-full transition-all"
+                        style={{ width: `${paidPct}%` }}
+                      />
+                    </div>
+                    <p className="text-[11px] text-slate-500 tabular-nums">
+                      {Math.round(paidPct)}% {t("paidSoFar").toLowerCase()}
+                    </p>
+                  </div>
+
+                  {/* Collapsible: glasses details */}
+                  <Collapsible className="border-t border-slate-100">
+                    <CollapsibleTrigger className="w-full flex items-center justify-between px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50 transition group/collapse">
+                      <div className="flex items-center gap-2">
+                        <EyeIcon className="h-4 w-4 text-sky-600" />
+                        <span>{t("glassesDetails")}</span>
+                      </div>
+                      <ChevronDown className="h-4 w-4 text-slate-400 transition-transform group-data-[state=open]/collapse:rotate-180" />
+                    </CollapsibleTrigger>
+                    <CollapsibleContent className="px-5 pb-4 pt-1">
+                      <div className="rounded-xl bg-slate-50 border border-slate-100 p-3 space-y-2 text-sm">
+                        {invoice.lens_type && (
+                          <div className="flex items-center gap-2">
+                            <div className="w-7 h-7 rounded-lg bg-sky-100 flex items-center justify-center shrink-0">
+                              <EyeIcon className="h-3.5 w-3.5 text-sky-700" />
+                            </div>
+                            <span className="text-slate-500">
+                              {t("lensTypeLabel")}:
                             </span>
-                            <span className="font-medium">
-                              {invoice.frame_brand} / {invoice.frame_model}
+                            <span className="font-medium text-slate-900 truncate">
+                              {invoice.lens_type}
                             </span>
                           </div>
                         )}
-
-                        {invoice.coating && (
-                          <div className="flex items-center gap-1.5">
-                            <Droplets className="h-3.5 w-3.5 text-cyan-500" />
-                            <span>
-                              {language === "ar" ? "الطلاء:" : "Coating:"}
+                        {invoice.frame_brand && (
+                          <div className="flex items-center gap-2">
+                            <div className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center shrink-0">
+                              <Frame className="h-3.5 w-3.5 text-slate-600" />
+                            </div>
+                            <span className="text-slate-500">
+                              {t("frameLabel")}:
                             </span>
-                            <span className="font-medium">
+                            <span className="font-medium text-slate-900 truncate">
+                              {invoice.frame_brand}
+                              {invoice.frame_model
+                                ? ` / ${invoice.frame_model}`
+                                : ""}
+                            </span>
+                          </div>
+                        )}
+                        {invoice.coating && (
+                          <div className="flex items-center gap-2">
+                            <div className="w-7 h-7 rounded-lg bg-cyan-100 flex items-center justify-center shrink-0">
+                              <Droplets className="h-3.5 w-3.5 text-cyan-700" />
+                            </div>
+                            <span className="text-slate-500">
+                              {t("coatingLabel")}:
+                            </span>
+                            <span className="font-medium text-slate-900 truncate">
                               {invoice.coating}
                             </span>
                           </div>
                         )}
-
-                        <div className="flex items-center gap-1.5 text-emerald-600">
-                          <Tag className="h-3.5 w-3.5" />
-                          <span>
-                            {language === "ar"
-                              ? "السعر الإجمالي:"
-                              : "Total Price:"}
+                        <div className="flex items-center gap-2 pt-1 border-t border-slate-200 mt-2">
+                          <div className="w-7 h-7 rounded-lg bg-emerald-100 flex items-center justify-center shrink-0">
+                            <Tag className="h-3.5 w-3.5 text-emerald-700" />
+                          </div>
+                          <span className="text-slate-500">
+                            {t("invoiceTotal")}:
                           </span>
-                          <span className="font-medium">
+                          <span className="font-semibold text-emerald-700 tabular-nums">
                             {invoice.total.toFixed(2)} {t("kwd")}
                           </span>
                         </div>
                       </div>
-                    </AccordionContent>
-                  </AccordionItem>
-                </Accordion>
+                    </CollapsibleContent>
+                  </Collapsible>
 
-                <div className="border-t border-dashed pt-3">
-                  <div className="grid grid-cols-2 gap-2 mb-3">
-                    <div>
-                      <p className="text-xs text-muted-foreground">
-                        {language === "ar"
-                          ? "إجمالي الفاتورة"
-                          : "Invoice Total"}
-                      </p>
-                      <p className="font-bold text-lg">
-                        {invoice.total.toFixed(2)} {t("kwd")}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">
-                        {language === "ar" ? "المدفوع" : "Paid"}
-                      </p>
-                      <p className="text-blue-600 font-medium">
-                        {invoice.deposit.toFixed(2)} {t("kwd")}
-                      </p>
-                    </div>
-                  </div>
-
+                  {/* Payment history — compact timeline */}
                   {invoice.payments && invoice.payments.length > 0 && (
-                    <div className="mt-2 bg-slate-50 p-2 rounded-md text-xs">
-                      <p className="font-medium mb-1">
-                        {language === "ar"
-                          ? "سجل الدفعات:"
-                          : "Payment History:"}
-                      </p>
-                      {invoice.payments.map((payment, idx) => (
-                        <div
-                          key={idx}
-                          className="flex justify-between items-center"
-                        >
-                          <span>
-                            {new Date(payment.date).toLocaleDateString(
-                              language === "ar" ? "ar-EG" : "en-US"
-                            )}
-                          </span>
-                          <span className="font-medium">
-                            {payment.amount !== undefined &&
-                            payment.amount !== null
-                              ? payment.amount.toFixed(2)
-                              : "0.00"}{" "}
-                            {t("kwd")} ({payment.method})
-                          </span>
-                        </div>
-                      ))}
+                    <div className="border-t border-slate-100 px-5 py-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Clock className="h-3.5 w-3.5 text-slate-400" />
+                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                          {t("paymentHistory")}
+                        </p>
+                        <span className="ms-auto text-[11px] text-slate-400 tabular-nums">
+                          {invoice.payments.length}
+                        </span>
+                      </div>
+                      <ul className="space-y-1.5">
+                        {invoice.payments.map((payment, idx) => (
+                          <li
+                            key={idx}
+                            className="flex items-center justify-between text-xs"
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <div className="w-6 h-6 rounded-md bg-slate-100 flex items-center justify-center shrink-0">
+                                <PaymentMethodIcon method={payment.method} />
+                              </div>
+                              <span className="text-slate-500 tabular-nums shrink-0">
+                                {new Date(payment.date).toLocaleDateString(
+                                  language === "ar" ? "ar-EG" : "en-US"
+                                )}
+                              </span>
+                              <span className="text-slate-400 truncate">
+                                · {payment.method}
+                              </span>
+                            </div>
+                            <span className="font-semibold text-slate-900 tabular-nums shrink-0 ms-2">
+                              {payment.amount !== undefined &&
+                              payment.amount !== null
+                                ? payment.amount.toFixed(2)
+                                : "0.00"}{" "}
+                              {t("kwd")}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
                     </div>
                   )}
-                </div>
 
-                <div className="flex gap-2">
-                  <Dialog
-                    open={showReceipt === invoice.invoice_id}
-                    onOpenChange={(open) => !open && setShowReceipt(null)}
-                  >
-                    <DialogTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className="flex-1 text-xs border-blue-200 hover:bg-blue-50 text-blue-700"
-                        onClick={() => setShowReceipt(invoice.invoice_id)}
-                      >
-                        <Eye className="h-4 w-4 mr-1" />
-                        {language === "ar" ? "عرض الفاتورة" : "View Invoice"}
-                      </Button>
-                    </DialogTrigger>
+                  {/* Spacer to push actions to the bottom */}
+                  <div className="flex-1" />
 
-                    <DialogContent className="max-w-sm">
-                      <DialogHeader>
-                        <DialogTitle>
-                          {showReceipt && selectedInvoice !== showReceipt ? (
-                            <div className="flex flex-col items-center text-green-600 mb-2">
-                              <CheckCircle2 className="h-6 w-6 mb-1" />
-                              {language === "ar"
-                                ? "تم تسجيل الدفع بنجاح"
-                                : "Payment Successfully Recorded"}
-                            </div>
-                          ) : null}
-                          {language === "ar" ? "فاتورة" : "Invoice"}{" "}
-                          {invoice.invoice_id}
-                        </DialogTitle>
-                      </DialogHeader>
-
-                      <div
-                        className="max-h-[70vh] overflow-y-auto py-4"
-                        id={`print-receipt-${invoice.invoice_id}`}
-                      >
-                        <ReceiptInvoice
-                          invoice={adaptInvoiceForPrint(invoice)}
-                          isPrintable={false}
-                        />
-                      </div>
-
-                      <DialogFooter>
+                  {/* Action buttons */}
+                  <div className="border-t border-slate-100 p-4">
+                    {/* Primary CTA — Make Payment, full width */}
+                    <Dialog
+                      open={selectedInvoice === invoice.invoice_id}
+                      onOpenChange={(open) =>
+                        !open && setSelectedInvoice(null)
+                      }
+                    >
+                      <DialogTrigger asChild>
                         <Button
-                          variant="outline"
-                          onClick={() => setShowReceipt(null)}
-                        >
-                          {language === "ar" ? "إغلاق" : "Close"}
-                        </Button>
-                        <PrintReportButton
-                          onPrint={() => {
-                            setShowReceipt(null);
-                            handlePrintReceipt(invoice.invoice_id);
+                          className="w-full h-11 bg-slate-900 hover:bg-slate-800 text-white font-semibold text-sm rounded-xl gap-2 shadow-sm"
+                          onClick={() => {
+                            setSelectedInvoice(invoice.invoice_id);
+                            // Initialize with just one payment entry with the remaining amount
+                            setPaymentEntries([
+                              {
+                                method: language === "ar" ? "نقداً" : "Cash",
+                                amount: invoice.remaining,
+                              },
+                            ]);
+                            setRemainingAfterPayment(0);
                           }}
-                          label={
-                            language === "ar"
-                              ? "طباعة الفاتورة"
-                              : "Print Invoice"
-                          }
-                        />
-                      </DialogFooter>
-                    </DialogContent>
-                  </Dialog>
+                        >
+                          <Wallet className="h-4 w-4" />
+                          {t("makePayment")}
+                        </Button>
+                      </DialogTrigger>
 
-                  <Button
-                    variant="outline"
-                    className="flex-1 text-xs border-purple-200 hover:bg-purple-50 text-purple-700"
-                    onClick={() =>
-                      goToPatientProfile(
-                        invoice.patient_id,
-                        invoice.patient_name,
-                        invoice.patient_phone
-                      )
-                    }
-                  >
-                    <UserCircle className="h-4 w-4 mr-1" />
-                    {language === "ar" ? "ملف العميل" : "Client File"}
-                  </Button>
+                      <DialogContent className="max-w-md">
+                        <DialogHeader>
+                          <DialogTitle>{t("recordNewPayment")}</DialogTitle>
+                          <DialogDescription>
+                            {t("recordPaymentFor")} {invoice.invoice_id}
+                          </DialogDescription>
+                        </DialogHeader>
 
-                  <Dialog
-                    open={selectedInvoice === invoice.invoice_id}
-                    onOpenChange={(open) => !open && setSelectedInvoice(null)}
-                  >
-                    <DialogTrigger asChild>
-                      <Button
-                        className="flex-1 text-xs bg-amber-500 hover:bg-amber-600"
-                        onClick={() => {
-                          setSelectedInvoice(invoice.invoice_id);
-                          // Initialize with just one payment entry with the remaining amount
-                          setPaymentEntries([
-                            {
-                              method: language === "ar" ? "نقداً" : "Cash",
-                              amount: invoice.remaining,
-                            },
-                          ]);
-                          setRemainingAfterPayment(0);
-                        }}
-                      >
-                        <CheckCircle2 className="h-4 w-4 mr-1" />
-                        {language === "ar" ? "تسديد الدفعة" : "Make Payment"}
-                      </Button>
-                    </DialogTrigger>
-
-                    <DialogContent className="max-w-md">
-                      <DialogHeader>
-                        <DialogTitle>
-                          {language === "ar"
-                            ? "تسجيل دفعة جديدة"
-                            : "Record New Payment"}
-                        </DialogTitle>
-                        <DialogDescription>
-                          {language === "ar"
-                            ? "تسجيل دفعة للفاتورة"
-                            : "Record payment for invoice."}{" "}
-                          {invoice.invoice_id}
-                        </DialogDescription>
-                      </DialogHeader>
-
-                      <div className="py-4 space-y-4">
-                        <div className="bg-muted p-4 rounded-md space-y-2">
-                          <div className="flex justify-between">
-                            <span className="text-sm text-muted-foreground">
-                              {language === "ar"
-                                ? "المبلغ الإجمالي:"
-                                : "Total Amount:"}
-                            </span>
-                            <span className="font-medium">
-                              {invoice.total.toFixed(2)} {t("kwd")}
-                            </span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-sm text-muted-foreground">
-                              {language === "ar"
-                                ? "المدفوع سابقاً:"
-                                : "Previously Paid:"}
-                            </span>
-                            <span className="font-medium text-blue-600">
-                              {invoice.deposit.toFixed(2)} {t("kwd")}
-                            </span>
-                          </div>
-                          <div className="flex justify-between font-bold border-t pt-2 mt-2">
-                            <span>
-                              {language === "ar"
-                                ? "المبلغ المتبقي:"
-                                : "Remaining Amount:"}
-                            </span>
-                            <span className="text-amber-600 text-lg">
-                              {invoice.remaining.toFixed(2)} {t("kwd")}
-                            </span>
-                          </div>
-
-                          {remainingAfterPayment !== null && (
-                            <div className="flex justify-between font-bold mt-3 bg-blue-50 p-2 rounded-md">
-                              <span className="text-blue-700">
-                                {language === "ar"
-                                  ? "المتبقي بعد الدفع:"
-                                  : "Remaining After Payment:"}
+                        <div className="py-4 space-y-4">
+                          <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl space-y-2">
+                            <div className="flex justify-between">
+                              <span className="text-sm text-slate-500">
+                                {t("totalAmount")}:
                               </span>
-                              <span className="text-blue-700 text-lg">
-                                {remainingAfterPayment !== null &&
-                                remainingAfterPayment !== undefined
-                                  ? remainingAfterPayment.toFixed(2)
-                                  : "0.00"}{" "}
-                                {t("kwd")}
+                              <span className="font-medium tabular-nums">
+                                {invoice.total.toFixed(2)} {t("kwd")}
                               </span>
                             </div>
-                          )}
-                        </div>
+                            <div className="flex justify-between">
+                              <span className="text-sm text-slate-500">
+                                {t("previouslyPaid")}:
+                              </span>
+                              <span className="font-medium text-emerald-700 tabular-nums">
+                                {invoice.deposit.toFixed(2)} {t("kwd")}
+                              </span>
+                            </div>
+                            <div className="flex justify-between font-bold border-t border-slate-200 pt-2 mt-2">
+                              <span>{t("amountDue")}:</span>
+                              <span className="text-amber-700 text-lg tabular-nums">
+                                {invoice.remaining.toFixed(2)} {t("kwd")}
+                              </span>
+                            </div>
 
-                        <div className="space-y-4">
-                          <div className="flex justify-between items-center">
-                            <h4 className="font-medium">
-                              {language === "ar"
-                                ? "طرق الدفع"
-                                : "Payment Methods"}
-                            </h4>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              onClick={addPaymentEntry}
-                              className="h-8"
-                            >
-                              <Plus className="h-3.5 w-3.5 mr-1" />{" "}
-                              {language === "ar"
-                                ? "إضافة طريقة دفع"
-                                : "Add Payment Method"}
-                            </Button>
+                            {remainingAfterPayment !== null && (
+                              <div className="flex justify-between font-bold mt-3 bg-sky-50 border border-sky-100 p-2 rounded-lg">
+                                <span className="text-sky-800">
+                                  {t("remainingAfterPayment")}:
+                                </span>
+                                <span className="text-sky-800 text-lg tabular-nums">
+                                  {remainingAfterPayment !== null &&
+                                  remainingAfterPayment !== undefined
+                                    ? remainingAfterPayment.toFixed(2)
+                                    : "0.00"}{" "}
+                                  {t("kwd")}
+                                </span>
+                              </div>
+                            )}
                           </div>
 
-                          {paymentEntries.map((entry, index) => (
-                            <div
-                              key={index}
-                              className="space-y-3 bg-slate-50 p-3 rounded-md"
-                            >
-                              <div className="flex justify-between items-center">
-                                <Label className="font-medium">
-                                  {language === "ar"
-                                    ? "طريقة الدفع"
-                                    : "Payment Method"}{" "}
-                                  #{index + 1}
-                                </Label>
-                                {paymentEntries.length > 1 && (
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-7 w-7 p-0 text-red-500 hover:text-red-600"
-                                    onClick={() => removePaymentEntry(index)}
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
+                          <div className="space-y-4">
+                            <div className="flex justify-between items-center">
+                              <h4 className="font-medium">
+                                {t("paymentMethods")}
+                              </h4>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={addPaymentEntry}
+                                className="h-8"
+                              >
+                                <Plus className="h-3.5 w-3.5 me-1" />{" "}
+                                {t("addPaymentMethod")}
+                              </Button>
+                            </div>
+
+                            {paymentEntries.map((entry, index) => (
+                              <div
+                                key={index}
+                                className="space-y-3 bg-slate-50 border border-slate-200 p-3 rounded-xl"
+                              >
+                                <div className="flex justify-between items-center">
+                                  <Label className="font-medium">
+                                    {t("paymentMethod")} #{index + 1}
+                                  </Label>
+                                  {paymentEntries.length > 1 && (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-7 w-7 p-0 text-rose-500 hover:text-rose-600 hover:bg-rose-50"
+                                      onClick={() => removePaymentEntry(index)}
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  )}
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-3">
+                                  <div className="space-y-1.5">
+                                    <Label htmlFor={`payment-method-${index}`}>
+                                      {t("paymentMethod")}
+                                    </Label>
+                                    <Select
+                                      value={entry.method}
+                                      onValueChange={(value) =>
+                                        updatePaymentEntry(
+                                          index,
+                                          "method",
+                                          value
+                                        )
+                                      }
+                                    >
+                                      <SelectTrigger
+                                        id={`payment-method-${index}`}
+                                      >
+                                        <SelectValue
+                                          placeholder={t("selectPaymentMethod")}
+                                        />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem
+                                          value={
+                                            language === "ar" ? "نقداً" : "Cash"
+                                          }
+                                        >
+                                          {language === "ar" ? "نقداً" : "Cash"}
+                                        </SelectItem>
+                                        <SelectItem
+                                          value={
+                                            language === "ar" ? "كي نت" : "KNET"
+                                          }
+                                        >
+                                          {language === "ar" ? "كي نت" : "KNET"}
+                                        </SelectItem>
+                                        <SelectItem value="Visa">
+                                          Visa
+                                        </SelectItem>
+                                        <SelectItem value="MasterCard">
+                                          MasterCard
+                                        </SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+
+                                  <div className="space-y-1.5">
+                                    <Label htmlFor={`payment-amount-${index}`}>
+                                      {t("amount")} ({t("kwd")})
+                                    </Label>
+                                    <Input
+                                      id={`payment-amount-${index}`}
+                                      type="number"
+                                      step="0.01"
+                                      min="0"
+                                      max={invoice.remaining}
+                                      value={entry.amount || ""}
+                                      onChange={(e) =>
+                                        updatePaymentEntry(
+                                          index,
+                                          "amount",
+                                          parseFloat(e.target.value) || 0
+                                        )
+                                      }
+                                    />
+                                  </div>
+                                </div>
+
+                                {(entry.method ===
+                                  (language === "ar" ? "كي نت" : "KNET") ||
+                                  entry.method === "Visa" ||
+                                  entry.method === "MasterCard") && (
+                                  <div className="space-y-1.5">
+                                    <Label htmlFor={`auth-number-${index}`}>
+                                      {t("authorizationNumber")}
+                                    </Label>
+                                    <Input
+                                      id={`auth-number-${index}`}
+                                      placeholder={t("authorizationNumber")}
+                                      value={entry.authNumber || ""}
+                                      onChange={(e) =>
+                                        updatePaymentEntry(
+                                          index,
+                                          "authNumber",
+                                          e.target.value
+                                        )
+                                      }
+                                    />
+                                  </div>
                                 )}
                               </div>
+                            ))}
 
-                              <div className="grid grid-cols-2 gap-3">
-                                <div className="space-y-1.5">
-                                  <Label htmlFor={`payment-method-${index}`}>
-                                    {language === "ar"
-                                      ? "طريقة الدفع"
-                                      : "Payment Method"}
-                                  </Label>
-                                  <Select
-                                    value={entry.method}
-                                    onValueChange={(value) =>
-                                      updatePaymentEntry(index, "method", value)
-                                    }
-                                  >
-                                    <SelectTrigger
-                                      id={`payment-method-${index}`}
-                                    >
-                                      <SelectValue
-                                        placeholder={
-                                          language === "ar"
-                                            ? "اختر طريقة الدفع"
-                                            : "Select payment method"
-                                        }
-                                      />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem
-                                        value={
-                                          language === "ar" ? "نقداً" : "Cash"
-                                        }
-                                      >
-                                        {language === "ar" ? "نقداً" : "Cash"}
-                                      </SelectItem>
-                                      <SelectItem
-                                        value={
-                                          language === "ar" ? "كي نت" : "KNET"
-                                        }
-                                      >
-                                        {language === "ar" ? "كي نت" : "KNET"}
-                                      </SelectItem>
-                                      <SelectItem value="Visa">Visa</SelectItem>
-                                      <SelectItem value="MasterCard">
-                                        MasterCard
-                                      </SelectItem>
-                                    </SelectContent>
-                                  </Select>
-                                </div>
-
-                                <div className="space-y-1.5">
-                                  <Label htmlFor={`payment-amount-${index}`}>
-                                    {language === "ar"
-                                      ? "المبلغ (د.ك)"
-                                      : "Amount (KWD)"}
-                                  </Label>
-                                  <Input
-                                    id={`payment-amount-${index}`}
-                                    type="number"
-                                    step="0.01"
-                                    min="0"
-                                    max={invoice.remaining}
-                                    value={entry.amount || ""}
-                                    onChange={(e) =>
-                                      updatePaymentEntry(
-                                        index,
-                                        "amount",
-                                        parseFloat(e.target.value) || 0
-                                      )
-                                    }
-                                  />
-                                </div>
-                              </div>
-
-                              {(entry.method ===
-                                (language === "ar" ? "كي نت" : "KNET") ||
-                                entry.method === "Visa" ||
-                                entry.method === "MasterCard") && (
-                                <div className="space-y-1.5">
-                                  <Label htmlFor={`auth-number-${index}`}>
-                                    {language === "ar"
-                                      ? "رقم التفويض"
-                                      : "Authorization Number"}
-                                  </Label>
-                                  <Input
-                                    id={`auth-number-${index}`}
-                                    placeholder={
-                                      language === "ar"
-                                        ? "رقم التفويض"
-                                        : "Authorization number"
-                                    }
-                                    value={entry.authNumber || ""}
-                                    onChange={(e) =>
-                                      updatePaymentEntry(
-                                        index,
-                                        "authNumber",
-                                        e.target.value
-                                      )
-                                    }
-                                  />
-                                </div>
-                              )}
+                            <div className="flex justify-between font-medium p-2 border-t border-slate-200">
+                              <span>{t("totalPayment")}:</span>
+                              <span className="tabular-nums">
+                                {calculateTotalPayment().toFixed(2)} {t("kwd")}
+                              </span>
                             </div>
-                          ))}
-
-                          <div className="flex justify-between font-medium p-2 border-t">
-                            <span>
-                              {language === "ar"
-                                ? "إجمالي المدفوع:"
-                                : "Total Payment :"}
-                            </span>
-                            <span>
-                              {calculateTotalPayment().toFixed(2)} {t("kwd")}
-                            </span>
                           </div>
                         </div>
-                      </div>
 
-                      <DialogFooter>
-                        <Button
-                          variant="outline"
-                          onClick={() => setSelectedInvoice(null)}
-                        >
-                          {language === "ar" ? "إلغاء" : "Cancel"}
-                        </Button>
-                        <Button
-                          onClick={() =>
-                            handleSubmitPayment(invoice.invoice_id)
-                          }
-                          className="bg-amber-500 hover:bg-amber-600"
-                          disabled={isSubmitting}
-                        >
-                          {isSubmitting ? (
-                            <>
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                              {language === "ar"
-                                ? "جاري التحديث..."
-                                : "Updating..."}
-                            </>
-                          ) : language === "ar" ? (
-                            "تأكيد الدفع"
-                          ) : (
-                            "Confirm Payment"
-                          )}
-                        </Button>
-                      </DialogFooter>
-                    </DialogContent>
-                  </Dialog>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                        <DialogFooter>
+                          <Button
+                            variant="outline"
+                            onClick={() => setSelectedInvoice(null)}
+                          >
+                            {t("cancelAction")}
+                          </Button>
+                          <Button
+                            onClick={() =>
+                              handleSubmitPayment(invoice.invoice_id)
+                            }
+                            className="bg-slate-900 hover:bg-slate-800 text-white"
+                            disabled={isSubmitting}
+                          >
+                            {isSubmitting ? (
+                              <>
+                                <Loader2 className="me-2 h-4 w-4 animate-spin" />
+                                {t("updating")}
+                              </>
+                            ) : (
+                              t("confirmPayment")
+                            )}
+                          </Button>
+                        </DialogFooter>
+                      </DialogContent>
+                    </Dialog>
 
-          {/* Show the last paid invoice if available and not in the filtered list */}
-          {lastPaidInvoice &&
-            !filteredInvoices.some(
-              (inv) => inv.invoice_id === lastPaidInvoice.invoice_id
-            ) && (
-              <Dialog
-                open={showReceipt === lastPaidInvoice.invoice_id}
-                onOpenChange={(open) => {
-                  if (!open) {
-                    setShowReceipt(null);
-                    // Don't clear lastPaidInvoice when closing dialog
-                    // to allow printing afterward
-                  }
-                }}
-              >
-                {/* We need a hidden trigger to keep the dialog structure valid */}
-                <DialogTrigger className="hidden" />
-                <DialogContent className="max-w-sm">
-                  <DialogHeader>
-                    <DialogTitle>
-                      <div className="flex flex-col items-center text-green-600 mb-2">
-                        <CheckCircle2 className="h-6 w-6 mb-1" />
-                        {language === "ar"
-                          ? "تم تسجيل الدفع بنجاح"
-                          : "Payment Successfully Recorded"}
-                      </div>
-                      {language === "ar" ? "فاتورة" : "Invoice"}{" "}
-                      {lastPaidInvoice.invoice_id}
-                    </DialogTitle>
-                  </DialogHeader>
+                    {/* Secondary actions — View invoice / Client file / Delete */}
+                    <div className="grid grid-cols-3 gap-2 mt-2">
+                      <Dialog
+                        open={showReceipt === invoice.invoice_id}
+                        onOpenChange={(open) => !open && setShowReceipt(null)}
+                      >
+                        <DialogTrigger asChild>
+                          <Button
+                            variant="outline"
+                            className="h-10 text-xs border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-medium rounded-lg gap-1.5"
+                            onClick={() => setShowReceipt(invoice.invoice_id)}
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                            {t("viewInvoice")}
+                          </Button>
+                        </DialogTrigger>
 
-                  <div
-                    className="max-h-[70vh] overflow-y-auto py-4"
-                    id={`print-receipt-${lastPaidInvoice.invoice_id}`}
-                  >
-                    <ReceiptInvoice
-                      invoice={adaptInvoiceForPrint(lastPaidInvoice)}
-                      isPrintable={false}
-                    />
+                        <DialogContent className="max-w-sm">
+                          <DialogHeader>
+                            <DialogTitle>
+                              {showReceipt && selectedInvoice !== showReceipt ? (
+                                <div className="flex flex-col items-center text-emerald-600 mb-2">
+                                  <CheckCircle2 className="h-6 w-6 mb-1" />
+                                  {t("paymentSuccess")}
+                                </div>
+                              ) : null}
+                              {t("invoice")} {invoice.invoice_id}
+                            </DialogTitle>
+                          </DialogHeader>
+
+                          <div
+                            className="max-h-[70vh] overflow-y-auto py-4"
+                            id={`print-receipt-${invoice.invoice_id}`}
+                          >
+                            <ReceiptInvoice
+                              invoice={adaptInvoiceForPrint(invoice)}
+                              isPrintable={false}
+                            />
+                          </div>
+
+                          <DialogFooter>
+                            <Button
+                              variant="outline"
+                              onClick={() => setShowReceipt(null)}
+                            >
+                              {t("close")}
+                            </Button>
+                            <PrintReportButton
+                              onPrint={() => {
+                                setShowReceipt(null);
+                                handlePrintReceipt(invoice.invoice_id);
+                              }}
+                              label={t("printInvoice")}
+                            />
+                          </DialogFooter>
+                        </DialogContent>
+                      </Dialog>
+
+                      <Button
+                        variant="outline"
+                        className="h-10 text-xs border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-medium rounded-lg gap-1.5"
+                        onClick={() =>
+                          goToPatientProfile(
+                            invoice.patient_id,
+                            invoice.patient_name,
+                            invoice.patient_phone
+                          )
+                        }
+                      >
+                        <UserCircle className="h-3.5 w-3.5" />
+                        {t("clientFile")}
+                      </Button>
+
+                      <Button
+                        variant="outline"
+                        className="h-10 text-xs border-rose-200 bg-white hover:bg-rose-50 text-rose-700 font-medium rounded-lg gap-1.5"
+                        onClick={() => {
+                          setDeleteTarget(invoice);
+                          setDeleteMode(null);
+                          setDeletePassword("");
+                          setDeleteError("");
+                        }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        {language === "ar" ? "حذف" : "Delete"}
+                      </Button>
+                    </div>
                   </div>
+                </div>
+              );
+            })}
 
-                  <DialogFooter>
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        setShowReceipt(null);
-                        // Don't clear lastPaidInvoice when closing dialog
-                      }}
+            {/* Show the last paid invoice dialog if available and not in the filtered list */}
+            {lastPaidInvoice &&
+              !filteredInvoices.some(
+                (inv) => inv.invoice_id === lastPaidInvoice.invoice_id
+              ) && (
+                <Dialog
+                  open={showReceipt === lastPaidInvoice.invoice_id}
+                  onOpenChange={(open) => {
+                    if (!open) {
+                      setShowReceipt(null);
+                      // Don't clear lastPaidInvoice when closing dialog
+                      // to allow printing afterward
+                    }
+                  }}
+                >
+                  {/* We need a hidden trigger to keep the dialog structure valid */}
+                  <DialogTrigger className="hidden" />
+                  <DialogContent className="max-w-sm">
+                    <DialogHeader>
+                      <DialogTitle>
+                        <div className="flex flex-col items-center text-emerald-600 mb-2">
+                          <CheckCircle2 className="h-6 w-6 mb-1" />
+                          {t("paymentSuccess")}
+                        </div>
+                        {t("invoice")} {lastPaidInvoice.invoice_id}
+                      </DialogTitle>
+                    </DialogHeader>
+
+                    <div
+                      className="max-h-[70vh] overflow-y-auto py-4"
+                      id={`print-receipt-${lastPaidInvoice.invoice_id}`}
                     >
-                      {language === "ar" ? "إغلاق" : "Close"}
-                    </Button>
-                    <PrintReportButton
-                      onPrint={() => {
-                        setShowReceipt(null);
-                        handlePrintReceipt(lastPaidInvoice.invoice_id);
-                        // Only clear lastPaidInvoice after successful printing
-                      }}
-                      label={
-                        language === "ar" ? "طباعة الفاتورة" : "Print Invoice"
-                      }
-                    />
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
+                      <ReceiptInvoice
+                        invoice={adaptInvoiceForPrint(lastPaidInvoice)}
+                        isPrintable={false}
+                      />
+                    </div>
+
+                    <DialogFooter>
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          setShowReceipt(null);
+                          // Don't clear lastPaidInvoice when closing dialog
+                        }}
+                      >
+                        {t("close")}
+                      </Button>
+                      <PrintReportButton
+                        onPrint={() => {
+                          setShowReceipt(null);
+                          handlePrintReceipt(lastPaidInvoice.invoice_id);
+                          // Only clear lastPaidInvoice after successful printing
+                        }}
+                        label={t("printInvoice")}
+                      />
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+              )}
+          </div>
+        )}
+      </div>
+
+      {/* Delete invoice dialog — two-step: choose scope, then enter admin password.
+          Scope #1: "Delete entire invoice" → archive + mark as refund so reports
+          reverse the deposit. Scope #2: "Delete remaining only" → write-off,
+          deposit stays as collected revenue, remaining flipped to 0/paid. */}
+      <Dialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) resetDeleteDialog();
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-rose-700">
+              <Trash2 className="h-5 w-5" />
+              {language === "ar" ? "حذف الفاتورة" : "Delete Invoice"}
+            </DialogTitle>
+            <DialogDescription>
+              {language === "ar"
+                ? "هذه العملية لا يمكن التراجع عنها. اختر نوع الحذف، ثم أدخل كلمة مرور المدير."
+                : "This action cannot be undone. Pick how to delete, then enter the admin password."}
+            </DialogDescription>
+          </DialogHeader>
+
+          {deleteTarget && (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm space-y-1">
+              <div className="font-semibold text-slate-900">
+                {deleteTarget.patient_name}{" "}
+                <span className="text-slate-500 font-mono text-xs">
+                  #{deleteTarget.invoice_id}
+                </span>
+              </div>
+              <div className="flex justify-between text-xs text-slate-600 tabular-nums">
+                <span>{language === "ar" ? "الإجمالي" : "Total"}</span>
+                <span>{Number(deleteTarget.total).toFixed(2)} KWD</span>
+              </div>
+              <div className="flex justify-between text-xs text-emerald-700 tabular-nums">
+                <span>{language === "ar" ? "المدفوع" : "Paid"}</span>
+                <span>{Number(deleteTarget.deposit).toFixed(2)} KWD</span>
+              </div>
+              <div className="flex justify-between text-xs text-amber-700 tabular-nums font-semibold">
+                <span>{language === "ar" ? "المتبقي" : "Remaining"}</span>
+                <span>{Number(deleteTarget.remaining).toFixed(2)} KWD</span>
+              </div>
+            </div>
+          )}
+
+          {/* Step 1: pick scope */}
+          {deleteMode === null && deleteTarget && (
+            <div className="space-y-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeleteMode("full")}
+                className="w-full text-start border-2 border-slate-200 rounded-xl p-4 hover:border-rose-400 hover:bg-rose-50 transition-all group"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="h-10 w-10 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center shrink-0 group-hover:bg-rose-200">
+                    <Trash2 className="h-5 w-5" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-bold text-slate-900">
+                      {language === "ar"
+                        ? "حذف الفاتورة بالكامل"
+                        : "Delete entire invoice"}
+                    </div>
+                    <div className="text-sm text-slate-500 mt-0.5">
+                      {language === "ar"
+                        ? `يُرجع ${Number(deleteTarget.deposit).toFixed(
+                            2
+                          )} د.ك كمسترد ويقلل إجمالي المبيعات`
+                        : `Refunds ${Number(deleteTarget.deposit).toFixed(
+                            2
+                          )} KWD and reduces total sales`}
+                    </div>
+                  </div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setDeleteMode("remaining")}
+                className="w-full text-start border-2 border-slate-200 rounded-xl p-4 hover:border-amber-400 hover:bg-amber-50 transition-all group"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="h-10 w-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0 group-hover:bg-amber-200">
+                    <CheckCircle2 className="h-5 w-5" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-bold text-slate-900">
+                      {language === "ar"
+                        ? "حذف المتبقي فقط"
+                        : "Delete remaining only"}
+                    </div>
+                    <div className="text-sm text-slate-500 mt-0.5">
+                      {language === "ar"
+                        ? `يحتفظ بـ ${Number(deleteTarget.deposit).toFixed(
+                            2
+                          )} د.ك المدفوعة ويُعفي ${Number(
+                            deleteTarget.remaining
+                          ).toFixed(2)} د.ك المتبقية`
+                        : `Keeps ${Number(deleteTarget.deposit).toFixed(
+                            2
+                          )} KWD already paid, writes off ${Number(
+                            deleteTarget.remaining
+                          ).toFixed(2)} KWD remaining`}
+                    </div>
+                  </div>
+                </div>
+              </button>
+            </div>
+          )}
+
+          {/* Step 2: password */}
+          {deleteMode !== null && (
+            <div className="space-y-3 pt-2">
+              <div className="rounded-xl border border-slate-200 bg-white p-3 text-sm">
+                <div className="text-xs uppercase tracking-wide text-slate-500 font-semibold mb-1">
+                  {language === "ar" ? "الإجراء المختار" : "Selected action"}
+                </div>
+                <div className="font-semibold text-slate-900">
+                  {deleteMode === "full"
+                    ? language === "ar"
+                      ? "حذف الفاتورة بالكامل"
+                      : "Delete entire invoice"
+                    : language === "ar"
+                    ? "حذف المتبقي فقط"
+                    : "Delete remaining only"}
+                </div>
+                <button
+                  type="button"
+                  className="text-xs text-sky-700 hover:underline mt-1"
+                  onClick={() => {
+                    setDeleteMode(null);
+                    setDeleteError("");
+                  }}
+                >
+                  {language === "ar" ? "تغيير" : "Change"}
+                </button>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="delete-pw">
+                  {language === "ar" ? "كلمة مرور المدير" : "Admin password"}
+                </Label>
+                <Input
+                  id="delete-pw"
+                  type="password"
+                  autoFocus
+                  autoComplete="off"
+                  value={deletePassword}
+                  onChange={(e) => {
+                    setDeletePassword(e.target.value);
+                    if (deleteError) setDeleteError("");
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !isDeleting) handleConfirmDelete();
+                  }}
+                  placeholder={
+                    language === "ar"
+                      ? "اطلب كلمة المرور من المدير"
+                      : "Ask your manager for the password"
+                  }
+                />
+                {deleteError && (
+                  <p className="text-sm text-rose-600 flex items-center gap-1">
+                    <AlertTriangle className="h-4 w-4" />
+                    {deleteError}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={resetDeleteDialog}
+              disabled={isDeleting}
+            >
+              {language === "ar" ? "إلغاء" : "Cancel"}
+            </Button>
+            {deleteMode !== null && (
+              <Button
+                variant="destructive"
+                onClick={handleConfirmDelete}
+                disabled={isDeleting || !deletePassword}
+              >
+                {isDeleting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 me-1 animate-spin" />
+                    {language === "ar" ? "جارٍ الحذف..." : "Deleting..."}
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4 me-1" />
+                    {language === "ar" ? "حذف" : "Delete"}
+                  </>
+                )}
+              </Button>
             )}
-        </div>
-      )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

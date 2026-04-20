@@ -149,34 +149,44 @@ const ReportPage: React.FC = () => {
   
   return (
     <Layout activeSection="reports" onNavigate={handleNavigate}>
-      <div className="container px-4 py-6 md:px-6">
-        <div className="flex justify-between items-center mb-4">
-          <h1 className="text-2xl md:text-3xl font-bold">{translations.reportsTitle}</h1>
-          <Button 
-            variant="outline" 
-            className="flex items-center gap-2 bg-teal-50 hover:bg-teal-100 text-teal-600 border-teal-200"
-            onClick={() => handleNavigate("dashboard")}
-          >
-            {language === 'ar' ? "←" : "←"} {translations.backToDashboard}
-          </Button>
-        </div>
-        
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4">
+      <div className="min-h-screen bg-stone-50">
+        <div className="container px-4 py-6 md:px-6 md:py-8">
+          <div className="flex justify-between items-center mb-6">
+            <h1 className="text-2xl md:text-3xl font-semibold text-slate-900 tracking-tight">
+              {translations.reportsTitle}
+            </h1>
+            <Button
+              variant="outline"
+              className="flex items-center gap-2 rounded-xl border-slate-200 text-slate-700 hover:bg-white"
+              onClick={() => handleNavigate("dashboard")}
+            >
+              ← {translations.backToDashboard}
+            </Button>
+          </div>
+
           <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center">
-              <TabsList className="grid w-full md:w-auto grid-cols-2 md:grid-cols-2 mb-3 md:mb-0">
-                <TabsTrigger value="daily" className="text-sm">{translations.dailyReport}</TabsTrigger>
-                <TabsTrigger value="comparative" className="flex items-center gap-1 text-sm">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 mb-4">
+              <TabsList className="grid w-full md:w-auto grid-cols-2 bg-white border border-slate-200 rounded-xl p-1 h-auto">
+                <TabsTrigger
+                  value="daily"
+                  className="text-sm font-medium rounded-lg data-[state=active]:bg-slate-900 data-[state=active]:text-white px-4 py-2"
+                >
+                  {translations.dailyReport}
+                </TabsTrigger>
+                <TabsTrigger
+                  value="comparative"
+                  className="flex items-center gap-1.5 text-sm font-medium rounded-lg data-[state=active]:bg-slate-900 data-[state=active]:text-white px-4 py-2"
+                >
                   {!isAuthenticated && <LockKeyhole size={14} />}
                   {translations.comparativeAnalysis}
                 </TabsTrigger>
               </TabsList>
-              
+
               {isAuthenticated && (
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  className="flex items-center gap-1 text-gray-500 self-end md:self-auto mt-2 md:mt-0"
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="flex items-center gap-1.5 text-slate-500 hover:text-slate-900"
                   onClick={handleSignOut}
                 >
                   <Unlock size={14} />
@@ -185,35 +195,35 @@ const ReportPage: React.FC = () => {
               )}
             </div>
 
-            <Card className="mt-4">
-              <CardContent className="pt-6 p-3 md:p-6">
-                <TabsContent value="daily" className="mt-0">
-                  <DailySalesReport />
-                </TabsContent>
+            <div className="bg-stone-50">
+              <TabsContent value="daily" className="mt-0">
+                <DailySalesReport />
+              </TabsContent>
 
-                <TabsContent value="comparative" className="mt-0">
-                  {isAuthenticated ? (
+              <TabsContent value="comparative" className="mt-0">
+                {isAuthenticated ? (
+                  <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 md:p-6">
                     <ComparativeAnalysis />
-                  ) : (
-                    <div className="py-8 md:py-12 text-center">
-                      <LockKeyhole className="h-8 w-8 md:h-12 md:w-12 mx-auto text-gray-400 mb-3" />
-                      <h3 className="text-base md:text-lg font-medium text-gray-700 mb-2">
-                        {translations.sectionProtected}
-                      </h3>
-                      <p className="text-sm md:text-base text-gray-500 mb-4 px-4">
-                        {translations.pleaseLogin}
-                      </p>
-                      <Button 
-                        onClick={() => setPasswordDialogOpen(true)}
-                        className="bg-primary hover:bg-primary/90"
-                      >
-                        {translations.login}
-                      </Button>
-                    </div>
-                  )}
-                </TabsContent>
-              </CardContent>
-            </Card>
+                  </div>
+                ) : (
+                  <div className="bg-white border border-slate-200 rounded-2xl shadow-sm py-16 text-center">
+                    <LockKeyhole className="h-10 w-10 mx-auto text-slate-300 mb-3" />
+                    <h3 className="text-lg font-semibold text-slate-900 mb-2">
+                      {translations.sectionProtected}
+                    </h3>
+                    <p className="text-sm text-slate-500 mb-5 px-4">
+                      {translations.pleaseLogin}
+                    </p>
+                    <Button
+                      onClick={() => setPasswordDialogOpen(true)}
+                      className="bg-slate-900 hover:bg-slate-800 text-white rounded-xl"
+                    >
+                      {translations.login}
+                    </Button>
+                  </div>
+                )}
+              </TabsContent>
+            </div>
           </Tabs>
         </div>
         

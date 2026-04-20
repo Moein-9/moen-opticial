@@ -43,6 +43,8 @@ import {
   AlertCircle,
   Check,
   Loader2,
+  Trash2,
+  Lock,
 } from "lucide-react";
 import { FrameLabelTemplate, usePrintLabel } from "./FrameLabelTemplate";
 import { useLanguageStore } from "@/store/languageStore";
@@ -60,12 +62,14 @@ const FrameItemCard = ({
   onPrintLabel,
   onEdit,
   onCopy,
+  onDelete,
 }: {
   frame: FrameItem;
   index: number;
   onPrintLabel: (frameId: string) => void;
   onEdit: (frame: FrameItem) => void;
   onCopy: (frame: FrameItem) => void;
+  onDelete: (frame: FrameItem) => void;
 }) => {
   const { t, language } = useLanguageStore();
 
@@ -135,7 +139,7 @@ const FrameItemCard = ({
         </div>
       </CardContent>
       <CardFooter className="p-0 border-t">
-        <div className="grid grid-cols-3 w-full divide-x divide-x-reverse">
+        <div className="grid grid-cols-4 w-full divide-x divide-x-reverse">
           <Button
             variant="ghost"
             className={`rounded-none h-10 ${textClass}`}
@@ -160,6 +164,16 @@ const FrameItemCard = ({
           >
             <QrCode className="h-4 w-4 mr-1" /> {t("print")}
           </Button>
+          <Button
+            variant="ghost"
+            className="rounded-none h-10 text-red-600"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(frame);
+            }}
+          >
+            <Trash2 className="h-4 w-4 mr-1" /> {t("delete")}
+          </Button>
         </div>
       </CardFooter>
     </Card>
@@ -175,6 +189,7 @@ export const FrameInventory: React.FC = () => {
     bulkImportFrames,
     isLoadingFrames,
     updateFrame,
+    deleteFrame,
   } = useInventoryStore();
   const { printSingleLabel } = usePrintLabel();
   const { t, language } = useLanguageStore();
@@ -193,6 +208,43 @@ export const FrameInventory: React.FC = () => {
   const [processedItems, setProcessedItems] = useState(0);
   const [totalItemsToProcess, setTotalItemsToProcess] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [printPromptFrameId, setPrintPromptFrameId] = useState<string | null>(null);
+  const [frameToDelete, setFrameToDelete] = useState<FrameItem | null>(null);
+  const [adminPasswordInput, setAdminPasswordInput] = useState("");
+  const [deleteError, setDeleteError] = useState("");
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleRequestDelete = (frame: FrameItem) => {
+    setAdminPasswordInput("");
+    setDeleteError("");
+    setFrameToDelete(frame);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!frameToDelete) return;
+    const expected = import.meta.env.VITE_ADMIN_PASSWORD || "";
+    if (!expected || adminPasswordInput !== expected) {
+      setDeleteError(
+        t("incorrectAdminPassword") ||
+          "Incorrect admin password. Ask your manager."
+      );
+      return;
+    }
+    setIsDeleting(true);
+    try {
+      const ok = await deleteFrame(frameToDelete.frameId);
+      if (ok) {
+        toast.success(t("frameDeletedSuccessfully") || "Frame deleted");
+        setFrameToDelete(null);
+        setAdminPasswordInput("");
+        setDeleteError("");
+      } else {
+        toast.error(t("errorDeletingFrame") || "Error deleting frame");
+      }
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   const [frameBrand, setFrameBrand] = useState("");
   const [frameModel, setFrameModel] = useState("");
@@ -219,13 +271,54 @@ export const FrameInventory: React.FC = () => {
     );
   }, [searchResults]);
 
-  const handleFrameSearch = async () => {
+  // Flexible local search: tolerates word order, extra whitespace, punctuation,
+  // and partial terms. Scores results so best matches float to the top.
+  const normalize = (s: string) =>
+    (s || "")
+      .toLowerCase()
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "") // strip diacritics
+      .replace(/[^a-z0-9\u0600-\u06ff\s]/g, " ") // keep Arabic letters, strip punctuation
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const scoreFrame = (frame: FrameItem, terms: string[]): number => {
+    if (terms.length === 0) return 1;
+    const brand = normalize(frame.brand);
+    const model = normalize(frame.model);
+    const color = normalize(frame.color || "");
+    const size = normalize(frame.size || "");
+    const haystack = `${brand} ${model} ${color} ${size}`;
+    let score = 0;
+    for (const term of terms) {
+      if (!term) continue;
+      if (model === term) score += 100;
+      else if (model.startsWith(term)) score += 50;
+      else if (brand === term) score += 40;
+      else if (brand.startsWith(term)) score += 25;
+      else if (haystack.includes(term)) score += 10;
+      else return 0; // every term must match somewhere
+    }
+    return score;
+  };
+
+  const fuzzyFilterFrames = (list: FrameItem[], query: string): FrameItem[] => {
+    const q = normalize(query);
+    if (!q) return list;
+    const terms = q.split(" ").filter(Boolean);
+    return list
+      .map((f) => ({ f, s: scoreFrame(f, terms) }))
+      .filter((x) => x.s > 0)
+      .sort((a, b) => b.s - a.s)
+      .map((x) => x.f);
+  };
+
+  const handleFrameSearch = () => {
     setIsSearching(true);
     try {
-      const results = await searchFrames(frameSearchTerm);
+      const results = fuzzyFilterFrames(frames, frameSearchTerm);
       setSearchResults(results);
-
-      if (results.length === 0) {
+      if (results.length === 0 && frameSearchTerm.trim()) {
         toast(t("noFramesMatchingSearch"));
       }
     } catch (error) {
@@ -301,10 +394,12 @@ export const FrameInventory: React.FC = () => {
         });
 
         if (frameId) {
-          toast.success(t("frameAddedSuccessfully"));
           setIsAddFrameDialogOpen(false);
           resetFrameForm();
           await fetchFrames();
+          toast.success(t("frameAddedSuccessfully"));
+          // Prompt the user to print a label for the newly-added frame
+          setPrintPromptFrameId(frameId);
         } else {
           toast.error(t("errorAddingFrame") || "Error adding frame");
         }
@@ -517,12 +612,16 @@ export const FrameInventory: React.FC = () => {
     init();
   }, []);
 
-  // Update search results when frames change, but don't override search results
+  // Live search: re-filter as the user types, or when realtime updates change frames.
   useEffect(() => {
-    if (!isSearching && !isLoadingFrames && frameSearchTerm.trim() === '') {
+    if (frameSearchTerm.trim() === "") {
       setSearchResults(frames);
+    } else {
+      setSearchResults(fuzzyFilterFrames(frames, frameSearchTerm));
     }
-  }, [frames, isSearching, isLoadingFrames, frameSearchTerm]);
+    // fuzzyFilterFrames is a local, stable closure — safe to omit from deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [frames, frameSearchTerm]);
 
   const isRtl = language === "ar";
   const dirClass = isRtl ? "rtl" : "ltr";
@@ -624,6 +723,7 @@ export const FrameInventory: React.FC = () => {
                     onPrintLabel={printSingleLabel}
                     onEdit={handleEditFrame}
                     onCopy={handleCopyFrame}
+                    onDelete={handleRequestDelete}
                   />
                 ))}
               </div>
@@ -1048,6 +1148,144 @@ export const FrameInventory: React.FC = () => {
                 : isImporting
                 ? "Importing..."
                 : "Import Frames"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete frame — requires admin password */}
+      <Dialog
+        open={frameToDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setFrameToDelete(null);
+            setAdminPasswordInput("");
+            setDeleteError("");
+          }
+        }}
+      >
+        <DialogContent className={`max-w-md ${dirClass}`}>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <Lock className="h-5 w-5" />
+              {isRtl ? "حذف الإطار" : "Delete frame"}
+            </DialogTitle>
+            <DialogDescription>
+              {isRtl
+                ? "هذه العملية لا يمكن التراجع عنها. يُرجى طلب كلمة المرور من المدير لإتمام الحذف."
+                : "This action cannot be undone. Ask your manager for the admin password to proceed."}
+            </DialogDescription>
+          </DialogHeader>
+
+          {frameToDelete && (
+            <div className="rounded-md border bg-muted/40 p-3 text-sm">
+              <div className="font-semibold">
+                {frameToDelete.brand} — {frameToDelete.model}
+              </div>
+              <div className="text-muted-foreground">
+                {isRtl ? "اللون" : "Color"}: {frameToDelete.color || "-"} •{" "}
+                {isRtl ? "الحجم" : "Size"}: {frameToDelete.size || "-"} •{" "}
+                {isRtl ? "الكمية" : "Qty"}: {frameToDelete.qty}
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <Label htmlFor="admin-pass">
+              {isRtl ? "كلمة مرور المدير" : "Admin password"}
+            </Label>
+            <Input
+              id="admin-pass"
+              type="password"
+              autoFocus
+              autoComplete="off"
+              value={adminPasswordInput}
+              onChange={(e) => {
+                setAdminPasswordInput(e.target.value);
+                if (deleteError) setDeleteError("");
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !isDeleting) handleConfirmDelete();
+              }}
+              placeholder={
+                isRtl
+                  ? "اطلب كلمة المرور من المدير"
+                  : "Ask your manager for the password"
+              }
+            />
+            {deleteError && (
+              <p className="text-sm text-red-600 flex items-center gap-1">
+                <AlertCircle className="h-4 w-4" />
+                {deleteError}
+              </p>
+            )}
+          </div>
+
+          <DialogFooter className={isRtl ? "flex-row-reverse" : ""}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setFrameToDelete(null);
+                setAdminPasswordInput("");
+                setDeleteError("");
+              }}
+              disabled={isDeleting}
+            >
+              {isRtl ? "إلغاء" : "Cancel"}
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleConfirmDelete}
+              disabled={isDeleting || !adminPasswordInput}
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                  {isRtl ? "جارٍ الحذف..." : "Deleting..."}
+                </>
+              ) : (
+                <>
+                  <Trash2 className="w-4 h-4 mr-1" />
+                  {isRtl ? "حذف" : "Delete"}
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Print-label confirmation popup shown after a new frame is added */}
+      <Dialog
+        open={printPromptFrameId !== null}
+        onOpenChange={(open) => !open && setPrintPromptFrameId(null)}
+      >
+        <DialogContent className={`max-w-sm ${dirClass}`}>
+          <DialogHeader>
+            <DialogTitle>
+              {isRtl ? "طباعة الملصق؟" : "Print label?"}
+            </DialogTitle>
+            <DialogDescription>
+              {isRtl
+                ? "هل تريد طباعة ملصق لهذا الإطار الذي تم إضافته؟"
+                : "Do you want to print a label for this frame?"}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className={isRtl ? "flex-row-reverse" : ""}>
+            <Button
+              variant="outline"
+              onClick={() => setPrintPromptFrameId(null)}
+            >
+              {isRtl ? "ليس الآن" : "Not now"}
+            </Button>
+            <Button
+              onClick={() => {
+                const id = printPromptFrameId;
+                setPrintPromptFrameId(null);
+                if (id) printSingleLabel(id);
+              }}
+            >
+              <Printer className="w-4 h-4 mr-1" />
+              {isRtl ? "طباعة" : "Print"}
             </Button>
           </DialogFooter>
         </DialogContent>

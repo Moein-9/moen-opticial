@@ -514,24 +514,28 @@ export const PatientTransactions: React.FC<PatientTransactionsProps> = ({
   };
 
   return (
-    <div className="space-y-4">
-      {/* Add a visible alert to show the feature is working */}
-      <Alert variant="default" className="bg-amber-50 border-amber-200">
-        <AlertCircle className="h-4 w-4 text-amber-600" />
-        <AlertTitle className="text-amber-800">
-          {language === "ar" ? "ميزة حذف الطلبات" : "Order Deletion Feature"}
-        </AlertTitle>
-        <AlertDescription className="text-amber-700">
-          {language === "ar"
-            ? "يمكنك الآن حذف الطلبات وسيتم نقلها تلقائيًا إلى تبويب الأرشيف. سيتم إرجاع أي مدفوعات سابقة."
-            : "You can now delete orders. They will be automatically moved to the Archive tab. Any previous payments will be refunded."}
-        </AlertDescription>
-      </Alert>
+    <div className="space-y-5">
+      {/* Friendly info banner — explains what Archive does */}
+      <div className="rounded-2xl bg-sky-50 border border-sky-200 p-5 flex items-start gap-4">
+        <div className="w-11 h-11 rounded-xl bg-sky-100 flex items-center justify-center flex-shrink-0">
+          <AlertCircle className="h-5 w-5 text-sky-700" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-base font-bold text-slate-900">
+            {language === "ar" ? "ميزة حذف الطلبات" : "Order Deletion"}
+          </div>
+          <div className="text-sm text-slate-600 mt-1 leading-relaxed">
+            {language === "ar"
+              ? "يمكنك الآن حذف الطلبات وسيتم نقلها تلقائيًا إلى تبويب الأرشيف. سيتم إرجاع أي مدفوعات سابقة."
+              : "You can now delete orders. They will move to the Archive tab automatically, and any previous payments will be refunded."}
+          </div>
+        </div>
+      </div>
 
       {isLoading ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="w-8 h-8 animate-spin text-primary" />
-          <span className="ml-2 text-primary">
+        <div className="flex items-center justify-center py-12 rounded-2xl bg-white border border-slate-200">
+          <Loader2 className="w-8 h-8 animate-spin text-slate-500" />
+          <span className="ms-2 text-slate-600 text-base">
             {language === "ar" ? "جاري التحميل..." : "Loading..."}
           </span>
         </div>
@@ -548,11 +552,8 @@ export const PatientTransactions: React.FC<PatientTransactionsProps> = ({
                 }
                 onPrintInvoice={() => handlePrintInvoice(localInvoices[0])}
               >
-                <Button
-                  className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700"
-                  size="sm"
-                >
-                  <Printer className="h-4 w-4" />
+                <Button className="h-11 px-5 text-base font-semibold bg-slate-900 hover:bg-slate-800 text-white shadow-sm">
+                  <Printer className="h-5 w-5 me-2" />
                   {t("print")}
                 </Button>
               </PrintOptionsDialog>

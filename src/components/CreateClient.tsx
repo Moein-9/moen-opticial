@@ -62,6 +62,33 @@ export const CreateClient: React.FC = () => {
   const [pdRight, setPdRight] = useState("");
   const [pdLeft, setPdLeft] = useState("");
 
+  // Normalize RX values: snap to step, clamp to range, format with proper sign.
+  // Called on blur so users can type freely, then we fix the value.
+  const snapRx = (
+    raw: string,
+    opts: { min: number; max: number; step: number; signed?: boolean; decimals?: number }
+  ): string => {
+    if (raw === "" || raw === "-" || raw === "+") return "";
+    const n = parseFloat(raw);
+    if (!Number.isFinite(n)) return "";
+    const clamped = Math.max(opts.min, Math.min(opts.max, n));
+    const snapped = Math.round(clamped / opts.step) * opts.step;
+    const decimals = opts.decimals ?? 2;
+    const fixed = snapped.toFixed(decimals);
+    if (opts.signed && snapped > 0) return `+${fixed}`;
+    return fixed;
+  };
+  const snapSph = (v: string) =>
+    snapRx(v, { min: -20, max: 20, step: 0.25, signed: true });
+  const snapCyl = (v: string) =>
+    snapRx(v, { min: -10, max: 10, step: 0.25, signed: true });
+  const snapAxis = (v: string) =>
+    snapRx(v, { min: 0, max: 180, step: 1, decimals: 0 });
+  const snapAdd = (v: string) =>
+    snapRx(v, { min: 0, max: 5, step: 0.25, signed: true });
+  const snapPd = (v: string) =>
+    snapRx(v, { min: 20, max: 40, step: 0.5, decimals: 1 });
+
   const [contactLensRx, setContactLensRx] = useState<ContactLensRx>({
     rightEye: { sphere: "-", cylinder: "-", axis: "-", bc: "-", dia: "-" },
     leftEye: { sphere: "-", cylinder: "-", axis: "-", bc: "-", dia: "-" },
@@ -627,6 +654,13 @@ export const CreateClient: React.FC = () => {
                 </div>
 
                 <div className="overflow-x-auto">
+                  {/* Shared suggestion lists — users can free-type OR pick from these */}
+                  <datalist id="rx-sph-options">{generateSphOptions()}</datalist>
+                  <datalist id="rx-cyl-options">{generateCylOptions()}</datalist>
+                  <datalist id="rx-axis-options">{generateAxisOptions()}</datalist>
+                  <datalist id="rx-add-options">{generateAddOptions()}</datalist>
+                  <datalist id="rx-pd-options">{generatePdOptions()}</datalist>
+
                   <table className="w-full border-collapse">
                     <thead>
                       <tr>
@@ -653,138 +687,148 @@ export const CreateClient: React.FC = () => {
                         <th className="text-center border border-border bg-muted p-2">
                           {t("rightEye")} (OD)
                         </th>
-                        <td className="border border-border p-1">
-                          <select
-                            className="w-full p-1 rounded-md border-input bg-background"
+                        <td className="border border-border p-1.5">
+                          <Input
+                            type="text"
+                            list="rx-sph-options"
+                            inputMode="decimal"
+                            placeholder="—"
+                            aria-label={`SPH ${t("rightEye")}`}
+                            className="h-9 text-center font-mono tabular-nums"
                             value={sphOD}
                             onChange={(e) => setSphOD(e.target.value)}
-                          >
-                            <option value="" disabled>
-                              {t("choose")}
-                            </option>
-                            {generateSphOptions()}
-                          </select>
+                            onBlur={(e) => setSphOD(snapSph(e.target.value))}
+                          />
                         </td>
-                        <td className="border border-border p-1">
-                          <select
-                            className="w-full p-1 rounded-md border-input bg-background"
+                        <td className="border border-border p-1.5">
+                          <Input
+                            type="text"
+                            list="rx-cyl-options"
+                            inputMode="decimal"
+                            placeholder="—"
+                            aria-label={`CYL ${t("rightEye")}`}
+                            className="h-9 text-center font-mono tabular-nums"
                             value={cylOD}
                             onChange={(e) => setCylOD(e.target.value)}
-                          >
-                            <option value="" disabled>
-                              {t("choose")}
-                            </option>
-                            {generateCylOptions()}
-                          </select>
+                            onBlur={(e) => setCylOD(snapCyl(e.target.value))}
+                          />
                         </td>
-                        <td className="border border-border p-1">
-                          <select
-                            className={`w-full p-1 rounded-md ${
+                        <td className="border border-border p-1.5">
+                          <Input
+                            type="text"
+                            list="rx-axis-options"
+                            inputMode="numeric"
+                            placeholder="—"
+                            aria-label={`AXIS ${t("rightEye")}`}
+                            className={`h-9 text-center font-mono tabular-nums ${
                               validationErrors.rightEye.cylinderAxisError
-                                ? "border-red-500 bg-red-50"
-                                : "border-input bg-background"
+                                ? "border-red-500 bg-red-50 focus-visible:ring-red-400"
+                                : ""
                             }`}
                             value={axisOD}
                             onChange={(e) => setAxisOD(e.target.value)}
-                          >
-                            <option value="" disabled>
-                              {t("choose")}
-                            </option>
-                            {generateAxisOptions()}
-                          </select>
+                            onBlur={(e) => setAxisOD(snapAxis(e.target.value))}
+                          />
                         </td>
-                        <td className="border border-border p-1">
-                          <select
-                            className="w-full p-1 rounded-md border-input bg-background"
+                        <td className="border border-border p-1.5">
+                          <Input
+                            type="text"
+                            list="rx-add-options"
+                            inputMode="decimal"
+                            placeholder="—"
+                            aria-label={`ADD ${t("rightEye")}`}
+                            className="h-9 text-center font-mono tabular-nums"
                             value={addOD}
                             onChange={(e) => setAddOD(e.target.value)}
-                          >
-                            <option value="" disabled>
-                              {t("choose")}
-                            </option>
-                            {generateAddOptions()}
-                          </select>
+                            onBlur={(e) => setAddOD(snapAdd(e.target.value))}
+                          />
                         </td>
-                        <td className="border border-border p-1">
-                          <select
-                            className="w-full p-1 rounded-md border-input bg-background"
+                        <td className="border border-border p-1.5">
+                          <Input
+                            type="text"
+                            list="rx-pd-options"
+                            inputMode="decimal"
+                            placeholder="—"
+                            aria-label={`PD ${t("rightEye")}`}
+                            className="h-9 text-center font-mono tabular-nums"
                             value={pdRight}
                             onChange={(e) => setPdRight(e.target.value)}
-                          >
-                            <option value="" disabled>
-                              {t("choose")}
-                            </option>
-                            {generatePdOptions()}
-                          </select>
+                            onBlur={(e) => setPdRight(snapPd(e.target.value))}
+                          />
                         </td>
                       </tr>
                       <tr>
                         <th className="text-center border border-border bg-muted p-2">
                           {t("leftEye")} (OS)
                         </th>
-                        <td className="border border-border p-1">
-                          <select
-                            className="w-full p-1 rounded-md border-input bg-background"
+                        <td className="border border-border p-1.5">
+                          <Input
+                            type="text"
+                            list="rx-sph-options"
+                            inputMode="decimal"
+                            placeholder="—"
+                            aria-label={`SPH ${t("leftEye")}`}
+                            className="h-9 text-center font-mono tabular-nums"
                             value={sphOS}
                             onChange={(e) => setSphOS(e.target.value)}
-                          >
-                            <option value="" disabled>
-                              {t("choose")}
-                            </option>
-                            {generateSphOptions()}
-                          </select>
+                            onBlur={(e) => setSphOS(snapSph(e.target.value))}
+                          />
                         </td>
-                        <td className="border border-border p-1">
-                          <select
-                            className="w-full p-1 rounded-md border-input bg-background"
+                        <td className="border border-border p-1.5">
+                          <Input
+                            type="text"
+                            list="rx-cyl-options"
+                            inputMode="decimal"
+                            placeholder="—"
+                            aria-label={`CYL ${t("leftEye")}`}
+                            className="h-9 text-center font-mono tabular-nums"
                             value={cylOS}
                             onChange={(e) => setCylOS(e.target.value)}
-                          >
-                            <option value="" disabled>
-                              {t("choose")}
-                            </option>
-                            {generateCylOptions()}
-                          </select>
+                            onBlur={(e) => setCylOS(snapCyl(e.target.value))}
+                          />
                         </td>
-                        <td className="border border-border p-1">
-                          <select
-                            className={`w-full p-1 rounded-md ${
+                        <td className="border border-border p-1.5">
+                          <Input
+                            type="text"
+                            list="rx-axis-options"
+                            inputMode="numeric"
+                            placeholder="—"
+                            aria-label={`AXIS ${t("leftEye")}`}
+                            className={`h-9 text-center font-mono tabular-nums ${
                               validationErrors.leftEye.cylinderAxisError
-                                ? "border-red-500 bg-red-50"
-                                : "border-input bg-background"
+                                ? "border-red-500 bg-red-50 focus-visible:ring-red-400"
+                                : ""
                             }`}
                             value={axisOS}
                             onChange={(e) => setAxisOS(e.target.value)}
-                          >
-                            <option value="" disabled>
-                              {t("choose")}
-                            </option>
-                            {generateAxisOptions()}
-                          </select>
+                            onBlur={(e) => setAxisOS(snapAxis(e.target.value))}
+                          />
                         </td>
-                        <td className="border border-border p-1">
-                          <select
-                            className="w-full p-1 rounded-md border-input bg-background"
+                        <td className="border border-border p-1.5">
+                          <Input
+                            type="text"
+                            list="rx-add-options"
+                            inputMode="decimal"
+                            placeholder="—"
+                            aria-label={`ADD ${t("leftEye")}`}
+                            className="h-9 text-center font-mono tabular-nums"
                             value={addOS}
                             onChange={(e) => setAddOS(e.target.value)}
-                          >
-                            <option value="" disabled>
-                              {t("choose")}
-                            </option>
-                            {generateAddOptions()}
-                          </select>
+                            onBlur={(e) => setAddOS(snapAdd(e.target.value))}
+                          />
                         </td>
-                        <td className="border border-border p-1">
-                          <select
-                            className="w-full p-1 rounded-md border-input bg-background"
+                        <td className="border border-border p-1.5">
+                          <Input
+                            type="text"
+                            list="rx-pd-options"
+                            inputMode="decimal"
+                            placeholder="—"
+                            aria-label={`PD ${t("leftEye")}`}
+                            className="h-9 text-center font-mono tabular-nums"
                             value={pdLeft}
                             onChange={(e) => setPdLeft(e.target.value)}
-                          >
-                            <option value="" disabled>
-                              {t("choose")}
-                            </option>
-                            {generatePdOptions()}
-                          </select>
+                            onBlur={(e) => setPdLeft(snapPd(e.target.value))}
+                          />
                         </td>
                       </tr>
                     </tbody>

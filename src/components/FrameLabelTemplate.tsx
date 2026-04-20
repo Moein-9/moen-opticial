@@ -32,7 +32,9 @@ interface FrameLabelTemplateProps {
  * Custom hook for frame label printing functionality
  */
 export const usePrintLabel = (onError?: (message: string) => void) => {
-  const { frames } = useInventoryStore();
+  // NOTE: do NOT destructure `frames` here — lookups must read the latest store
+  // state via getState() at call time, otherwise toast/dialog callbacks fire
+  // with a stale frames snapshot and "frame not found" for newly-added frames.
   const { t } = useLanguageStore();
   const [isPrinting, setIsPrinting] = useState(false);
 
@@ -50,7 +52,19 @@ export const usePrintLabel = (onError?: (message: string) => void) => {
   };
 
   const printSingleLabel = async (frameId: string) => {
-    const frame = frames.find((f) => f.frameId === frameId);
+    let frame = useInventoryStore.getState().frames.find((f) => f.frameId === frameId);
+
+    // Fallback: if the newly-added frame hasn't propagated to the store yet,
+    // fetch directly from Supabase so printing still works.
+    if (!frame) {
+      try {
+        const { getFrameById } = await import("@/services/frameService");
+        const fresh = await getFrameById(frameId);
+        if (fresh) frame = fresh as any;
+      } catch (e) {
+        console.error("[LabelPrinting] Direct fetch fallback failed:", e);
+      }
+    }
 
     if (!frame) {
       const errorMsg = t("frameNotFound");
@@ -98,7 +112,9 @@ export const usePrintLabel = (onError?: (message: string) => void) => {
       return;
     }
 
-    const selectedFrames = frames.filter((f) => frameIds.includes(f.frameId));
+    const selectedFrames = useInventoryStore
+      .getState()
+      .frames.filter((f) => frameIds.includes(f.frameId));
 
     if (selectedFrames.length === 0) {
       const errorMsg = t("noFramesFound");

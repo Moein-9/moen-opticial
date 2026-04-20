@@ -160,6 +160,16 @@ export const TabbedTransactions: React.FC<TabbedTransactionsProps> = ({
     }
   };
 
+  // Full date + time — used for the "picked up at" stamp so staff can see exactly when.
+  const formatDateTime = (dateString: string) => {
+    try {
+      const date = new Date(dateString);
+      return isValid(date) ? format(date, "dd/MM/yyyy · h:mm a") : "Invalid Date";
+    } catch {
+      return "Invalid Date";
+    }
+  };
+
   const getTimeAgo = (dateString: string) => {
     try {
       const date = new Date(dateString);
@@ -584,19 +594,24 @@ export const TabbedTransactions: React.FC<TabbedTransactionsProps> = ({
   const renderActiveTable = (transactions: Invoice[]) => {
     if (transactions.length === 0) {
       return (
-        <div className="p-8 text-center text-gray-500 bg-blue-50/30 rounded-lg my-2">
-          <ShoppingBag className="h-12 w-12 mx-auto text-blue-300 mb-2" />
-          <p className="font-medium">
+        <div className="p-12 text-center bg-white rounded-2xl border border-dashed border-slate-300 my-2">
+          <ShoppingBag className="h-12 w-12 mx-auto text-slate-400 mb-3" />
+          <p className="text-lg font-semibold text-slate-700">
             {language === "ar"
               ? "لا توجد معاملات نشطة"
               : "No active transactions"}
+          </p>
+          <p className="text-sm text-slate-500 mt-1">
+            {language === "ar"
+              ? "ستظهر الطلبات الجديدة هنا"
+              : "New orders will appear here"}
           </p>
         </div>
       );
     }
 
     return (
-      <div className="divide-y border border-blue-200 rounded-lg overflow-hidden bg-gradient-to-r from-blue-50/30 to-indigo-50/30">
+      <div className="space-y-4">
         {transactions.map((invoice) => {
           const hasBeenEdited = invoice.lastEditedAt !== undefined;
           const editTimeAgo = invoice.lastEditedAt
@@ -609,13 +624,15 @@ export const TabbedTransactions: React.FC<TabbedTransactionsProps> = ({
           return (
             <div
               key={invoice.invoiceId}
-              className="p-4 hover:bg-blue-50/60 transition-all animate-fade-in"
+              className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all animate-fade-in"
             >
-              <div className="flex justify-between items-start">
-                <div className="space-y-3 flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <Receipt className="h-5 w-5 text-indigo-600" />
-                    <span className="font-semibold text-indigo-900 text-lg">
+              <div className="flex justify-between items-start gap-4 flex-wrap">
+                <div className="space-y-3 flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="w-10 h-10 rounded-xl bg-sky-100 flex items-center justify-center flex-shrink-0">
+                      <Receipt className="h-5 w-5 text-sky-700" />
+                    </div>
+                    <span className="font-bold text-slate-900 text-lg font-mono">
                       {invoice.invoiceId}
                     </span>
 
@@ -623,14 +640,14 @@ export const TabbedTransactions: React.FC<TabbedTransactionsProps> = ({
                     {invoice.isPaid ? (
                       <Badge
                         variant="outline"
-                        className="bg-green-50 text-green-700 border-green-200 ml-2"
+                        className="bg-emerald-50 text-emerald-800 border-emerald-200 ms-1 text-sm px-2.5 py-0.5 font-semibold"
                       >
                         {language === "ar" ? "مدفوع" : "Paid"}
                       </Badge>
                     ) : (
                       <Badge
                         variant="outline"
-                        className="bg-amber-50 text-amber-700 border-amber-200 ml-2"
+                        className="bg-amber-50 text-amber-800 border-amber-200 ms-1 text-sm px-2.5 py-0.5 font-semibold"
                       >
                         {language === "ar" ? "غير مدفوع" : "Unpaid"}
                       </Badge>
@@ -639,9 +656,9 @@ export const TabbedTransactions: React.FC<TabbedTransactionsProps> = ({
                     {/* Pickup Status */}
                     <Badge
                       variant="outline"
-                      className="bg-indigo-50 text-indigo-700 border-indigo-200 ml-2 flex items-center gap-1"
+                      className="bg-sky-50 text-sky-800 border-sky-200 ms-1 text-sm px-2.5 py-0.5 font-semibold flex items-center gap-1"
                     >
-                      <Clock className="h-3 w-3" />
+                      <Clock className="h-3.5 w-3.5" />
                       {language === "ar" ? "جاري التجهيز" : "Processing"}
                     </Badge>
 
@@ -706,22 +723,26 @@ export const TabbedTransactions: React.FC<TabbedTransactionsProps> = ({
                   </div>
                 </div>
 
-                <div className="text-right">
-                  <div className="font-semibold text-indigo-900 text-xl">
-                    {invoice.total.toFixed(3)} KWD
+                <div className="text-end">
+                  <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                    {language === "ar" ? "الإجمالي" : "Total"}
+                  </div>
+                  <div className="font-bold text-slate-900 text-2xl tabular-nums">
+                    {invoice.total.toFixed(3)}{" "}
+                    <span className="text-base text-slate-500">KWD</span>
                   </div>
                   {invoice.remaining > 0 && (
-                    <div className="text-amber-600 font-medium text-sm mt-1">
+                    <div className="text-amber-700 font-semibold text-base mt-1 tabular-nums">
                       {language === "ar" ? "المتبقي:" : "Remaining:"}{" "}
                       {invoice.remaining.toFixed(3)} KWD
                     </div>
                   )}
-                  <div className="flex space-x-2 mt-3 justify-end">
+                  <div className="flex gap-2 mt-3 justify-end flex-wrap">
                     {invoice.workOrderId && (
                       <Button
                         variant="outline"
                         size="sm"
-                        className="h-8 text-xs bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100 hover:text-gray-800 hover:border-gray-300"
+                        className="h-10 px-3 text-sm font-semibold bg-white text-slate-700 border-slate-300 hover:bg-slate-50"
                         onClick={() => {
                           // Find the related work order to delete
                           console.log(
@@ -771,7 +792,7 @@ export const TabbedTransactions: React.FC<TabbedTransactionsProps> = ({
                           }
                         }}
                       >
-                        <Archive className="h-3.5 w-3.5 mr-1" />
+                        <Archive className="h-4 w-4 me-1.5" />
                         {language === "ar" ? "أرشفة" : "Archive"}
                       </Button>
                     )}
@@ -786,26 +807,30 @@ export const TabbedTransactions: React.FC<TabbedTransactionsProps> = ({
                       <Button
                         variant="outline"
                         size="sm"
-                        className="h-8 text-xs bg-cyan-50 text-cyan-700 border-cyan-200 hover:bg-cyan-100 hover:text-cyan-800 hover:border-cyan-300"
+                        className="h-10 px-3 text-sm font-semibold bg-sky-50 text-sky-800 border-sky-200 hover:bg-sky-100"
                       >
-                        <Receipt className="h-3.5 w-3.5 mr-1" />
+                        <Receipt className="h-4 w-4 me-1.5" />
                         {language === "ar" ? "طباعة" : "Print"}
                       </Button>
                     </PrintOptionsDialog>
 
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-8 text-xs bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 hover:text-emerald-800 hover:border-emerald-300"
-                      onClick={() =>
-                        handleMarkAsPickedUp(invoice.invoiceId, true)
-                      }
-                    >
-                      <CheckCheck className="h-3.5 w-3.5 mr-1" />
-                      {language === "ar" ? "تم الاستلام" : "Mark as Picked Up"}
-                    </Button>
                   </div>
                 </div>
+
+                {/* Giant pickup button — impossible to miss. Placed full-width
+                    so staff can slap it when the customer shows up. */}
+                <Button
+                  size="lg"
+                  className="w-full mt-5 h-16 text-lg md:text-xl font-bold rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-md hover:shadow-lg transition-all tracking-wide"
+                  onClick={() =>
+                    handleMarkAsPickedUp(invoice.invoiceId, true)
+                  }
+                >
+                  <CheckCheck className="h-7 w-7 me-3" />
+                  {language === "ar"
+                    ? "تم استلام الطلب"
+                    : "Mark as Picked Up"}
+                </Button>
               </div>
             </div>
           );
@@ -817,9 +842,9 @@ export const TabbedTransactions: React.FC<TabbedTransactionsProps> = ({
   const renderCompletedTable = (transactions: Invoice[]) => {
     if (transactions.length === 0) {
       return (
-        <div className="p-8 text-center text-gray-500 bg-green-50/30 rounded-lg my-2">
-          <CheckCheck className="h-12 w-12 mx-auto text-green-300 mb-2" />
-          <p className="font-medium">
+        <div className="p-12 text-center bg-white rounded-2xl border border-dashed border-slate-300 my-2">
+          <CheckCheck className="h-12 w-12 mx-auto text-emerald-400 mb-3" />
+          <p className="text-lg font-semibold text-slate-700">
             {language === "ar"
               ? "لا توجد معاملات مكتملة"
               : "No completed transactions"}
@@ -829,20 +854,22 @@ export const TabbedTransactions: React.FC<TabbedTransactionsProps> = ({
     }
 
     return (
-      <div className="divide-y border border-green-200 rounded-lg overflow-hidden bg-gradient-to-r from-green-50/30 to-emerald-50/30">
+      <div className="space-y-4" data-completed-list>
         {transactions.map((invoice) => {
           const hasBeenEdited = invoice.lastEditedAt !== undefined;
 
           return (
             <div
               key={invoice.invoiceId}
-              className="p-4 hover:bg-green-50/60 transition-all"
+              className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all"
             >
-              <div className="flex justify-between items-start">
-                <div className="space-y-3 flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <Receipt className="h-5 w-5 text-green-600" />
-                    <span className="font-semibold text-green-800 text-lg">
+              <div className="flex justify-between items-start gap-4 flex-wrap">
+                <div className="space-y-3 flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center flex-shrink-0">
+                      <Receipt className="h-5 w-5 text-emerald-700" />
+                    </div>
+                    <span className="font-bold text-slate-900 text-lg font-mono">
                       {invoice.invoiceId}
                     </span>
 
@@ -850,14 +877,14 @@ export const TabbedTransactions: React.FC<TabbedTransactionsProps> = ({
                     {invoice.isPaid ? (
                       <Badge
                         variant="outline"
-                        className="bg-green-50 text-green-700 border-green-200 ml-2"
+                        className="bg-emerald-50 text-emerald-800 border-emerald-200 ms-1 text-sm px-2.5 py-0.5 font-semibold"
                       >
                         {language === "ar" ? "مدفوع" : "Paid"}
                       </Badge>
                     ) : (
                       <Badge
                         variant="outline"
-                        className="bg-amber-50 text-amber-700 border-amber-200 ml-2"
+                        className="bg-amber-50 text-amber-800 border-amber-200 ms-1 text-sm px-2.5 py-0.5 font-semibold"
                       >
                         {language === "ar" ? "غير مدفوع" : "Unpaid"}
                       </Badge>
@@ -866,9 +893,9 @@ export const TabbedTransactions: React.FC<TabbedTransactionsProps> = ({
                     {/* Pickup Status */}
                     <Badge
                       variant="outline"
-                      className="bg-green-50 text-green-700 border-green-200 ml-2 flex items-center gap-1"
+                      className="bg-emerald-50 text-emerald-800 border-emerald-200 ms-1 text-sm px-2.5 py-0.5 font-semibold flex items-center gap-1"
                     >
-                      <CheckCircle className="h-3 w-3" />
+                      <CheckCircle className="h-3.5 w-3.5" />
                       {language === "ar" ? "تم الاستلام" : "Picked up"}
                     </Badge>
 
@@ -933,31 +960,38 @@ export const TabbedTransactions: React.FC<TabbedTransactionsProps> = ({
                   </div>
 
                   {invoice.pickedUpAt && (
-                    <div className="text-xs mt-1.5 text-green-600 bg-green-50 rounded-md inline-block px-2 py-0.5">
+                    <div className="mt-2 inline-flex items-center gap-1.5 text-sm font-medium text-green-700 bg-green-50 border border-green-200 rounded-md px-3 py-1.5">
+                      <CheckCircle className="h-4 w-4" />
                       {language === "ar"
-                        ? "تم الاستلام بتاريخ:"
-                        : "Picked up on:"}{" "}
-                      {formatDate(invoice.pickedUpAt)}
+                        ? "تم الاستلام:"
+                        : "Picked up:"}{" "}
+                      <span className="font-semibold">
+                        {formatDateTime(invoice.pickedUpAt)}
+                      </span>
                     </div>
                   )}
                 </div>
 
-                <div className="text-right">
-                  <div className="font-semibold text-green-800 text-xl">
-                    {invoice.total.toFixed(3)} KWD
+                <div className="text-end">
+                  <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                    {language === "ar" ? "الإجمالي" : "Total"}
+                  </div>
+                  <div className="font-bold text-slate-900 text-2xl tabular-nums">
+                    {invoice.total.toFixed(3)}{" "}
+                    <span className="text-base text-slate-500">KWD</span>
                   </div>
                   {invoice.remaining > 0 && (
-                    <div className="text-amber-600 font-medium text-sm mt-1">
+                    <div className="text-amber-700 font-semibold text-base mt-1 tabular-nums">
                       {language === "ar" ? "المتبقي:" : "Remaining:"}{" "}
                       {invoice.remaining.toFixed(3)} KWD
                     </div>
                   )}
-                  <div className="mt-3 flex space-x-2 justify-end">
+                  <div className="mt-3 flex gap-2 justify-end flex-wrap">
                     {invoice.workOrderId && onDeleteWorkOrder && (
                       <Button
                         variant="outline"
                         size="sm"
-                        className="h-8 text-xs bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100 hover:text-gray-800 hover:border-gray-300"
+                        className="h-10 px-3 text-sm font-semibold bg-white text-slate-700 border-slate-300 hover:bg-slate-50"
                         onClick={() => {
                           // Find the related work order to delete
                           console.log(
@@ -1007,7 +1041,7 @@ export const TabbedTransactions: React.FC<TabbedTransactionsProps> = ({
                           }
                         }}
                       >
-                        <Archive className="h-3.5 w-3.5 mr-1" />
+                        <Archive className="h-4 w-4 me-1.5" />
                         {language === "ar" ? "أرشفة" : "Archive"}
                       </Button>
                     )}
@@ -1023,7 +1057,7 @@ export const TabbedTransactions: React.FC<TabbedTransactionsProps> = ({
                         size="sm"
                         className="h-8 text-xs bg-green-50 text-green-700 border-green-200 hover:bg-green-100 hover:text-green-800 hover:border-green-300"
                       >
-                        <Receipt className="h-3.5 w-3.5 mr-1" />
+                        <Receipt className="h-4 w-4 me-1.5" />
                         {language === "ar" ? "طباعة" : "Print"}
                       </Button>
                     </PrintOptionsDialog>
@@ -1040,9 +1074,9 @@ export const TabbedTransactions: React.FC<TabbedTransactionsProps> = ({
   const renderRefundedTable = (transactions: Invoice[]) => {
     if (transactions.length === 0) {
       return (
-        <div className="p-8 text-center text-gray-500 bg-red-50/30 rounded-lg my-2">
-          <RefreshCcw className="h-12 w-12 mx-auto text-red-300 mb-2" />
-          <p className="font-medium">
+        <div className="p-12 text-center bg-white rounded-2xl border border-dashed border-slate-300 my-2">
+          <RefreshCcw className="h-12 w-12 mx-auto text-rose-400 mb-3" />
+          <p className="text-lg font-semibold text-slate-700">
             {language === "ar"
               ? "لا توجد معاملات مستردة"
               : "No refunded transactions"}
@@ -1052,20 +1086,22 @@ export const TabbedTransactions: React.FC<TabbedTransactionsProps> = ({
     }
 
     return (
-      <div className="divide-y border border-red-200 rounded-lg overflow-hidden bg-gradient-to-r from-red-50/20 to-pink-50/20">
+      <div className="space-y-4" data-refunded-list>
         {transactions.map((invoice) => {
           const hasBeenEdited = invoice.lastEditedAt !== undefined;
 
           return (
             <div
               key={invoice.invoiceId}
-              className="p-4 hover:bg-red-50/40 transition-all"
+              className="p-6 bg-white rounded-2xl border border-rose-200 shadow-sm hover:shadow-md transition-all"
             >
-              <div className="flex justify-between items-start">
-                <div className="space-y-3 flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <Receipt className="h-5 w-5 text-red-600" />
-                    <span className="font-semibold text-red-800 text-lg">
+              <div className="flex justify-between items-start gap-4 flex-wrap">
+                <div className="space-y-3 flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center flex-shrink-0">
+                      <Receipt className="h-5 w-5 text-rose-700" />
+                    </div>
+                    <span className="font-bold text-slate-900 text-lg font-mono">
                       {invoice.invoiceId}
                     </span>
 
@@ -1073,14 +1109,14 @@ export const TabbedTransactions: React.FC<TabbedTransactionsProps> = ({
                     {invoice.isPaid ? (
                       <Badge
                         variant="outline"
-                        className="bg-green-50 text-green-700 border-green-200 ml-2"
+                        className="bg-emerald-50 text-emerald-800 border-emerald-200 ms-1 text-sm px-2.5 py-0.5 font-semibold"
                       >
                         {language === "ar" ? "مدفوع" : "Paid"}
                       </Badge>
                     ) : (
                       <Badge
                         variant="outline"
-                        className="bg-amber-50 text-amber-700 border-amber-200 ml-2"
+                        className="bg-amber-50 text-amber-800 border-amber-200 ms-1 text-sm px-2.5 py-0.5 font-semibold"
                       >
                         {language === "ar" ? "غير مدفوع" : "Unpaid"}
                       </Badge>
@@ -1089,9 +1125,9 @@ export const TabbedTransactions: React.FC<TabbedTransactionsProps> = ({
                     {/* Refund Status */}
                     <Badge
                       variant="outline"
-                      className="bg-red-50 text-red-700 border-red-200 ml-2 flex items-center gap-1"
+                      className="bg-rose-50 text-rose-800 border-rose-200 ms-1 text-sm px-2.5 py-0.5 font-semibold flex items-center gap-1"
                     >
-                      <RefreshCcw className="h-3 w-3" />
+                      <RefreshCcw className="h-3.5 w-3.5" />
                       {language === "ar" ? "مسترد" : "Refunded"}
                     </Badge>
 
@@ -1174,7 +1210,7 @@ export const TabbedTransactions: React.FC<TabbedTransactionsProps> = ({
                       <Button
                         variant="outline"
                         size="sm"
-                        className="h-8 text-xs bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100 hover:text-gray-800 hover:border-gray-300"
+                        className="h-10 px-3 text-sm font-semibold bg-white text-slate-700 border-slate-300 hover:bg-slate-50"
                         onClick={() => {
                           // Find the related work order to delete
                           console.log(
@@ -1224,7 +1260,7 @@ export const TabbedTransactions: React.FC<TabbedTransactionsProps> = ({
                           }
                         }}
                       >
-                        <Archive className="h-3.5 w-3.5 mr-1" />
+                        <Archive className="h-4 w-4 me-1.5" />
                         {language === "ar" ? "أرشفة" : "Archive"}
                       </Button>
                     )}
@@ -1253,9 +1289,9 @@ export const TabbedTransactions: React.FC<TabbedTransactionsProps> = ({
   ) => {
     if (invoices.length === 0 && workOrders.length === 0) {
       return (
-        <div className="p-8 text-center text-gray-500 bg-gray-50/30 rounded-lg my-2">
-          <Archive className="h-12 w-12 mx-auto text-gray-300 mb-2" />
-          <p className="font-medium">
+        <div className="p-12 text-center bg-white rounded-2xl border border-dashed border-slate-300 my-2">
+          <Archive className="h-12 w-12 mx-auto text-slate-400 mb-3" />
+          <p className="text-lg font-semibold text-slate-700">
             {language === "ar" ? "لا توجد عناصر مؤرشفة" : "No archived items"}
           </p>
         </div>
@@ -1265,11 +1301,11 @@ export const TabbedTransactions: React.FC<TabbedTransactionsProps> = ({
     return (
       <div className="space-y-4">
         {invoices.length > 0 && (
-          <div className="divide-y border border-gray-200 rounded-lg overflow-hidden bg-gradient-to-r from-gray-50/30 to-slate-50/30">
+          <div className="space-y-4">
             {invoices.map((invoice) => (
               <div
                 key={invoice.invoiceId}
-                className="p-4 hover:bg-gray-50/60 transition-all"
+                className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all"
               >
                 <div className="flex justify-between items-start">
                   <div className="space-y-3 flex-1">
@@ -1388,11 +1424,11 @@ export const TabbedTransactions: React.FC<TabbedTransactionsProps> = ({
         )}
 
         {workOrders.length > 0 && (
-          <div className="divide-y border border-gray-200 rounded-lg overflow-hidden bg-gradient-to-r from-gray-50/30 to-slate-50/30 mt-4">
+          <div className="space-y-4 mt-4">
             {workOrders.map((workOrder) => (
               <div
                 key={workOrder.id}
-                className="p-4 hover:bg-gray-50/60 transition-all"
+                className="p-6 bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all"
               >
                 <div className="flex justify-between items-start">
                   <div className="space-y-3 flex-1">
@@ -1461,42 +1497,61 @@ export const TabbedTransactions: React.FC<TabbedTransactionsProps> = ({
     );
   };
 
+  const bigTabClass =
+    "relative h-12 rounded-xl text-base font-semibold transition-all " +
+    "data-[state=inactive]:bg-transparent data-[state=inactive]:text-slate-600 " +
+    "data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-sm";
+
   return (
     <Tabs defaultValue="active" value={activeTab} onValueChange={setActiveTab}>
-      <TabsList className="grid w-full grid-cols-4">
-        <TabsTrigger value="active" className="relative">
-          {language === "ar" ? "نشط" : "Active"}
-          {activeInvoices.length > 0 && (
-            <span className="absolute -top-1 -right-1 bg-blue-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
-              {activeInvoices.length}
+      <div className="p-1.5 bg-slate-100 rounded-2xl border border-slate-200">
+        <TabsList className="grid w-full grid-cols-4 bg-transparent p-0 h-auto gap-1.5">
+          <TabsTrigger value="active" className={bigTabClass}>
+            <span className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-sky-500" aria-hidden />
+              {language === "ar" ? "نشط" : "Active"}
             </span>
-          )}
-        </TabsTrigger>
-        <TabsTrigger value="completed">
-          {language === "ar" ? "مكتمل" : "Completed"}
-          {uniqueCompletedInvoices.length > 0 && (
-            <span className="absolute -top-1 -right-1 bg-green-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
-              {uniqueCompletedInvoices.length}
+            {activeInvoices.length > 0 && (
+              <span className="ms-2 inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 rounded-full bg-sky-600 text-white text-xs font-bold">
+                {activeInvoices.length}
+              </span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="completed" className={bigTabClass}>
+            <span className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-500" aria-hidden />
+              {language === "ar" ? "مكتمل" : "Completed"}
             </span>
-          )}
-        </TabsTrigger>
-        <TabsTrigger value="refunded">
-          {language === "ar" ? "مسترد" : "Refunded"}
-          {refundedInvoices.length > 0 && (
-            <span className="absolute -top-1 -right-1 bg-red-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
-              {refundedInvoices.length}
+            {uniqueCompletedInvoices.length > 0 && (
+              <span className="ms-2 inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 rounded-full bg-emerald-600 text-white text-xs font-bold">
+                {uniqueCompletedInvoices.length}
+              </span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="refunded" className={bigTabClass}>
+            <span className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-rose-500" aria-hidden />
+              {language === "ar" ? "مسترد" : "Refunded"}
             </span>
-          )}
-        </TabsTrigger>
-        <TabsTrigger value="archived">
-          {language === "ar" ? "أرشيف" : "Archived"}
-          {(archivedInvoices.length > 0 || archivedWorkOrders.length > 0) && (
-            <span className="absolute -top-1 -right-1 bg-gray-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
-              {archivedInvoices.length + archivedWorkOrders.length}
+            {refundedInvoices.length > 0 && (
+              <span className="ms-2 inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 rounded-full bg-rose-600 text-white text-xs font-bold">
+                {refundedInvoices.length}
+              </span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="archived" className={bigTabClass}>
+            <span className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-slate-500" aria-hidden />
+              {language === "ar" ? "أرشيف" : "Archived"}
             </span>
-          )}
-        </TabsTrigger>
-      </TabsList>
+            {(archivedInvoices.length > 0 || archivedWorkOrders.length > 0) && (
+              <span className="ms-2 inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 rounded-full bg-slate-700 text-white text-xs font-bold">
+                {archivedInvoices.length + archivedWorkOrders.length}
+              </span>
+            )}
+          </TabsTrigger>
+        </TabsList>
+      </div>
 
       <TabsContent value="active" className="mt-4">
         {renderActiveTable(activeInvoices)}

@@ -3,6 +3,7 @@
 import { supabase } from '@/integrations/supabase/client';
 import { v4 as uuidv4 } from 'uuid';
 import { toast } from 'sonner';
+import { decrementFrameStock } from './frameService';
 
 export interface InvoiceData {
   invoice_id: string;
@@ -289,6 +290,17 @@ export const saveOrder = async (formData: any): Promise<{invoiceId: string | nul
     
     // Create invoice first
     const createdInvoiceId = await createInvoice(invoiceData);
+
+    // Decrement frame stock if a frame was sold (negative qty allowed)
+    if (createdInvoiceId && formData.frameBrand && formData.frameModel) {
+      decrementFrameStock({
+        brand: formData.frameBrand,
+        model: formData.frameModel,
+        color: formData.frameColor,
+        size: formData.frameSize,
+        by: 1,
+      }).catch((e) => console.error('Frame stock decrement failed:', e));
+    }
     
     // Only create work order for non-exam invoice types
     let createdWorkOrderId = null;

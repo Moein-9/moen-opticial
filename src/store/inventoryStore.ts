@@ -4,6 +4,7 @@ import * as frameService from '@/services/frameService';
 import * as serviceService from '@/services/serviceService';
 import * as lensService from '@/services/lensService';
 import { Service } from '@/services/serviceService';
+import { supabase } from '@/integrations/supabase/client';
 
 export interface FrameItem {
   frameId: string;
@@ -87,6 +88,7 @@ interface InventoryState {
   fetchFrames: () => Promise<void>;
   addFrame: (frame: Omit<FrameItem, "frameId" | "createdAt">) => Promise<string | null>;
   updateFrameQuantity: (frameId: string, newQty: number) => Promise<boolean>;
+  deleteFrame: (frameId: string) => Promise<boolean>;
   searchFrames: (query: string) => Promise<FrameItem[]>;
   getFrameById: (id: string) => Promise<FrameItem | null>;
   bulkImportFrames: (frames: Array<Omit<FrameItem, "frameId" | "createdAt">>) => Promise<{ added: number; duplicates: number; errors: number }>;
@@ -193,17 +195,27 @@ export const useInventoryStore = create<InventoryState>()(
       
       updateFrameQuantity: async (frameId, newQty) => {
         const success = await frameService.updateFrameQuantity(frameId, newQty);
-        
+
         if (success) {
           set((state) => ({
-            frames: state.frames.map(frame => 
-              frame.frameId === frameId 
-                ? { ...frame, qty: newQty } 
+            frames: state.frames.map(frame =>
+              frame.frameId === frameId
+                ? { ...frame, qty: newQty }
                 : frame
             )
           }));
         }
-        
+
+        return success;
+      },
+
+      deleteFrame: async (frameId) => {
+        const success = await frameService.deleteFrame(frameId);
+        if (success) {
+          set((state) => ({
+            frames: state.frames.filter((f) => f.frameId !== frameId),
+          }));
+        }
         return success;
       },
       
@@ -679,4 +691,42 @@ export const initInventoryStore = async () => {
     fetchLensThicknesses(),
     fetchLensPricingCombinations()
   ]);
+
+  // Subscribe to realtime frames changes — keeps every open session in sync
+  // when a sale decrements qty or someone edits inventory elsewhere.
+  subscribeToFramesRealtime();
 };
+
+let framesChannel: ReturnType<typeof supabase.channel> | null = null;
+function subscribeToFramesRealtime() {
+  if (framesChannel) return; // already subscribed
+  framesChannel = supabase
+    .channel('frames-inventory')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'frames' },
+      (payload: any) => {
+        const { eventType, new: newRow, old: oldRow } = payload;
+        useInventoryStore.setState((state) => {
+          if (eventType === 'INSERT') {
+            if (state.frames.some((f) => f.frameId === newRow.frameId)) return state;
+            return { frames: [...state.frames, newRow as FrameItem] };
+          }
+          if (eventType === 'UPDATE') {
+            return {
+              frames: state.frames.map((f) =>
+                f.frameId === newRow.frameId ? ({ ...f, ...newRow } as FrameItem) : f
+              ),
+            };
+          }
+          if (eventType === 'DELETE') {
+            return {
+              frames: state.frames.filter((f) => f.frameId !== oldRow.frameId),
+            };
+          }
+          return state;
+        });
+      }
+    )
+    .subscribe();
+}

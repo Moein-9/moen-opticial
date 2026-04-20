@@ -21,7 +21,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { PlusCircle, Eye, Loader2 } from "lucide-react";
+import { PlusCircle, Eye, Loader2, Receipt } from "lucide-react";
 import { AddRxDialog } from "./AddRxDialog";
 import { AddContactLensRxDialog } from "./AddContactLensRxDialog";
 import {
@@ -30,6 +30,13 @@ import {
   GlassesPrescription,
 } from "@/integrations/supabase/schema";
 import * as patientService from "@/services/patientService";
+import { supabase } from "@/integrations/supabase/client";
+
+// Module-level set to track deep-link patient IDs we've already opened.
+// Prevents React 18 StrictMode (dev) from double-processing the same request
+// and, more importantly, prevents the cleanup/cancelled flag from silently
+// discarding the open-profile action.
+const openedDeepLinkIds = new Set<string>();
 
 // Interface for patient data shown in search results
 interface PatientWithMeta extends Patient {
@@ -37,7 +44,25 @@ interface PatientWithMeta extends Patient {
   avatar?: string;
 }
 
-export const PatientSearch: React.FC = () => {
+interface PatientSearchProps {
+  /**
+   * When set, the search form is hidden and the profile dialog auto-opens
+   * for this patient. Lets callers (e.g. the Reports page) reuse this
+   * component as a pure profile viewer without a nav.
+   */
+  embeddedProfilePatientId?: string | null;
+  /** Fired when the dialog is closed in embedded mode. */
+  onEmbeddedProfileClose?: () => void;
+}
+
+export const PatientSearch: React.FC<PatientSearchProps> = ({
+  embeddedProfilePatientId = null,
+  onEmbeddedProfileClose,
+} = {}) => {
+  // Embedded mode is determined by the presence of the close callback —
+  // a stable signal. We don't want it flipping based on whether a patient
+  // is currently loaded, or the search form would flash back on close.
+  const embedded = !!onEmbeddedProfileClose;
   const {
     invoices,
     workOrders,
@@ -109,18 +134,33 @@ export const PatientSearch: React.FC = () => {
     try {
       const patients = await patientService.searchPatients(searchTerm);
 
-      // Map patients properly to match the PatientWithMeta interface
-      const results = patients.map((patient) => {
-        return {
-          ...patient,
-          id: patient.id,
-          full_name: patient.full_name,
-          phone_number: patient.phone_number,
-          date_of_birth: patient.date_of_birth,
-          // Add any derived fields needed for display
-          lastVisit: undefined, // We'll get this from invoices if needed
-        };
-      });
+      // Fetch most recent invoice date per patient in a single query
+      const patientIds = patients.map((p) => p.id).filter(Boolean);
+      const lastVisitMap: Record<string, string> = {};
+      if (patientIds.length > 0) {
+        // @ts-ignore — invoices table not in generated types
+        const { data: invRows, error: invErr } = await supabase
+          .from("invoices")
+          .select("patient_id, created_at")
+          .in("patient_id", patientIds)
+          .order("created_at", { ascending: false });
+        if (!invErr && invRows) {
+          for (const row of invRows as any[]) {
+            if (row.patient_id && !lastVisitMap[row.patient_id]) {
+              lastVisitMap[row.patient_id] = row.created_at;
+            }
+          }
+        }
+      }
+
+      const results = patients.map((patient) => ({
+        ...patient,
+        id: patient.id,
+        full_name: patient.full_name,
+        phone_number: patient.phone_number,
+        date_of_birth: patient.date_of_birth,
+        lastVisit: lastVisitMap[patient.id],
+      }));
 
       let filteredResults = results;
       // Use type assertion to resolve the type compatibility issue
@@ -200,8 +240,64 @@ export const PatientSearch: React.FC = () => {
         });
       }
 
-      // Get invoice data (still using the local store for now)
+      // Get invoice data from the local store first...
       refreshPatientData(patient.id);
+
+      // ...then reconcile with Supabase so the profile stats (total spent,
+      // purchase count, last visit) always reflect what's actually in the DB,
+      // even if the local store hasn't loaded this patient's invoices yet.
+      try {
+        // @ts-ignore — invoices table not in generated types
+        const { data: invRows, error: invErr } = await supabase
+          .from("invoices")
+          .select("*")
+          .eq("patient_id", patient.id)
+          .order("created_at", { ascending: false });
+        if (!invErr && invRows) {
+          const mapped = (invRows as any[]).map((r) => ({
+            invoiceId: r.invoice_id,
+            workOrderId: r.work_order_id,
+            patientId: r.patient_id,
+            patientName: r.patient_name,
+            patientPhone: r.patient_phone,
+            invoiceType: r.invoice_type,
+            total: Number(r.total) || 0,
+            deposit: Number(r.deposit) || 0,
+            remaining: Number(r.remaining) || 0,
+            discount: Number(r.discount) || 0,
+            isPaid: !!r.is_paid,
+            isPickedUp: !!r.is_picked_up,
+            pickedUpAt: r.picked_up_at,
+            isRefunded: !!r.is_refunded,
+            isArchived: !!r.is_archived,
+            archivedAt: r.archived_at,
+            paymentMethod: r.payment_method,
+            authNumber: r.auth_number,
+            payments: r.payments || [],
+            createdAt: r.created_at,
+            lastEditedAt: r.last_edited_at,
+            // frame/lens display fields used by transactions list
+            frameBrand: r.frame_brand,
+            frameModel: r.frame_model,
+            frameColor: r.frame_color,
+            frameSize: r.frame_size,
+            framePrice: Number(r.frame_price) || 0,
+            lensType: r.lens_type,
+            lensPrice: Number(r.lens_price) || 0,
+            coating: r.coating,
+            coatingPrice: Number(r.coating_price) || 0,
+            thickness: r.thickness,
+            thicknessPrice: Number(r.thickness_price) || 0,
+          })) as any[];
+          const active = mapped.filter((i) => !i.isArchived);
+          const archived = mapped.filter((i) => i.isArchived);
+          setPatientInvoices(active);
+          setArchivedInvoices(archived);
+        }
+      } catch (e) {
+        console.error("Failed to reconcile invoices from Supabase:", e);
+      }
+
       setIsProfileOpen(true);
     } catch (error) {
       console.error("Error fetching patient details:", error);
@@ -564,39 +660,119 @@ export const PatientSearch: React.FC = () => {
     }
   }, [refreshTrigger, selectedPatient, refreshPatientData]);
 
+  // (embedded-profile support removed — use the deep-link flow instead)
+
+  // Deep-link from other pages (e.g. Reports → "View profile" button):
+  // set localStorage.openPatientId and navigate here; we fetch and open
+  // the profile dialog automatically on mount.
+  //
+  // We deliberately do NOT use a `cancelled` cleanup flag here: in React 18
+  // StrictMode the effect runs twice in dev (mount → cleanup → re-mount),
+  // and a cancel flag would silently discard the in-flight open-profile
+  // request. Instead we dedupe via a module-level Set.
+  useEffect(() => {
+    const openPendingProfile = async () => {
+      try {
+        const pendingId = localStorage.getItem("openPatientId");
+        if (!pendingId) return;
+        if (openedDeepLinkIds.has(pendingId)) return;
+        openedDeepLinkIds.add(pendingId);
+        localStorage.removeItem("openPatientId");
+        const result = await patientService.getPatientById(pendingId);
+        const patient = (result as any)?.patient;
+        if (!patient) {
+          console.warn(
+            "Deep-link: patient not found for id",
+            pendingId,
+            result
+          );
+          return;
+        }
+        // Spread the entire patient row so PatientWithMeta carries every
+        // field the normal search flow would populate (full_name,
+        // phone_number, date_of_birth, created_at, updated_at, skip_dob...).
+        // Fetch last-visit from invoices so the profile stats match what
+        // the "View Profile" button from the normal search page produces.
+        let lastVisit: string | undefined = undefined;
+        try {
+          // @ts-ignore — invoices table not in generated types
+          const { data: lvRows } = await supabase
+            .from("invoices")
+            .select("created_at")
+            .eq("patient_id", patient.id)
+            .order("created_at", { ascending: false })
+            .limit(1);
+          lastVisit = (lvRows as any[])?.[0]?.created_at;
+        } catch (lvErr) {
+          console.warn("Deep-link: last-visit lookup failed:", lvErr);
+        }
+        await handlePatientSelect({
+          ...patient,
+          lastVisit,
+        } as PatientWithMeta);
+      } catch (e) {
+        console.error("Failed to open pending patient profile:", e);
+      }
+    };
+    openPendingProfile();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
-    <div className="space-y-6">
-      <PatientSearchForm onSearch={handleSearch} onClear={clearSearch} />
+    <div className={embedded ? "" : "space-y-6"}>
+      {!embedded && (
+        <>
+          <PatientSearchForm onSearch={handleSearch} onClear={clearSearch} />
 
-      {isLoading && (
-        <div className="flex justify-center p-8">
-          <Loader2 className="w-8 h-8 animate-spin text-primary" />
-        </div>
+          {isLoading && (
+            <div className="flex justify-center p-8">
+              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            </div>
+          )}
+
+          {showResults && !isLoading && (
+            <PatientSearchResults
+              searchResults={searchResults}
+              onSelectPatient={handlePatientSelect}
+            />
+          )}
+        </>
       )}
 
-      {showResults && !isLoading && (
-        <PatientSearchResults
-          searchResults={searchResults}
-          onSelectPatient={handlePatientSelect}
-        />
-      )}
-
-      <Dialog open={isProfileOpen} onOpenChange={setIsProfileOpen}>
-        <DialogContent className="max-w-[95vw] lg:max-w-[90vw] max-h-[90vh] overflow-y-auto p-4 lg:p-6">
+      <Dialog
+        open={isProfileOpen}
+        onOpenChange={(open) => {
+          setIsProfileOpen(open);
+          if (!open) {
+            // Reset so reopening for a different patient doesn't flash
+            // the previous customer's data before the new fetch resolves.
+            setSelectedPatient(null);
+            setPatientDetails(null);
+            setPatientInvoices([]);
+            setPatientWorkOrders([]);
+            setArchivedInvoices([]);
+            setArchivedWorkOrders([]);
+            if (embedded && onEmbeddedProfileClose) {
+              onEmbeddedProfileClose();
+            }
+          }
+        }}
+      >
+        <DialogContent className="max-w-[95vw] lg:max-w-[90vw] max-h-[92vh] overflow-y-auto p-0 bg-stone-50">
           {selectedPatient && patientDetails && (
             <>
-              <DialogHeader>
-                <DialogTitle className="text-xl">
+              <DialogHeader className="px-6 lg:px-8 pt-6 pb-5 bg-white border-b border-slate-200 sticky top-0 z-10">
+                <DialogTitle className="text-2xl font-bold text-slate-900 tracking-tight">
                   {language === "ar" ? "ملف العميل" : "Client Profile"}
                 </DialogTitle>
-                <DialogDescription>
+                <DialogDescription className="text-base text-slate-500 mt-1">
                   {language === "ar"
                     ? "تفاصيل بيانات العميل وسجل المعاملات"
                     : "Client details and transaction history"}
                 </DialogDescription>
               </DialogHeader>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6 py-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 lg:gap-8 p-6 lg:p-8">
                 <div className="md:col-span-1">
                   <PatientProfileInfo
                     patient={{
@@ -743,28 +919,38 @@ export const PatientSearch: React.FC = () => {
                   />
                 </div>
 
-                <div className="md:col-span-2">
-                  <div className="flex justify-between items-center mb-2">
-                    <h3 className="text-base font-medium text-indigo-700">
-                      {language === "ar" ? "الوصفة الطبية" : "Prescription"}
-                    </h3>
-                    <div className="flex gap-2">
+                <div className="md:col-span-2 space-y-6">
+                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+                    <div className="flex items-center gap-3">
+                      <div className="w-11 h-11 rounded-xl bg-amber-100 flex items-center justify-center">
+                        <Receipt className="h-5 w-5 text-amber-700" />
+                      </div>
+                      <div>
+                        <h3 className="text-xl font-bold text-slate-900">
+                          {language === "ar" ? "الوصفة الطبية" : "Prescription"}
+                        </h3>
+                        <p className="text-sm text-slate-500">
+                          {language === "ar"
+                            ? "أضف أو اعرض وصفات النظارات والعدسات"
+                            : "Add or view glasses and lens prescriptions"}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex flex-col sm:flex-row gap-2">
                       <Button
                         onClick={() => setIsAddRxDialogOpen(true)}
-                        className="bg-indigo-600 hover:bg-indigo-700 text-white"
-                        size="sm"
+                        className="h-11 px-4 text-base font-semibold bg-amber-600 hover:bg-amber-700 text-white shadow-sm"
                       >
-                        <PlusCircle className="h-3.5 w-3.5 mr-1.5" />
+                        <PlusCircle className="h-5 w-5 me-2" />
                         {language === "ar"
                           ? "إضافة وصفة نظارات"
                           : "Add Glasses RX"}
                       </Button>
                       <Button
                         onClick={() => setIsAddContactLensRxDialogOpen(true)}
-                        className="bg-green-600 hover:bg-green-700 text-white"
-                        size="sm"
+                        className="h-11 px-4 text-base font-semibold bg-sky-600 hover:bg-sky-700 text-white shadow-sm"
                       >
-                        <Eye className="h-3.5 w-3.5 mr-1.5" />
+                        <Eye className="h-5 w-5 me-2" />
                         {language === "ar"
                           ? "إضافة وصفة عدسات"
                           : "Add Contact Lens RX"}
@@ -935,9 +1121,17 @@ export const PatientSearch: React.FC = () => {
             </>
           )}
 
-          {isLoading && (
-            <div className="flex justify-center p-12">
+          {/* Show a spinner whenever the dialog is open but the patient data
+              hasn't arrived yet — avoids an empty dialog flash while the
+              Supabase fetches resolve. */}
+          {(isLoading || !selectedPatient || !patientDetails) && (
+            <div className="flex flex-col items-center justify-center gap-3 p-16">
               <Loader2 className="w-12 h-12 animate-spin text-primary" />
+              <p className="text-sm text-slate-500">
+                {language === "ar"
+                  ? "جارٍ تحميل ملف العميل..."
+                  : "Loading customer profile..."}
+              </p>
             </div>
           )}
         </DialogContent>
