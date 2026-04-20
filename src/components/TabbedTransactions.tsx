@@ -160,11 +160,15 @@ export const TabbedTransactions: React.FC<TabbedTransactionsProps> = ({
     }
   };
 
-  // Full date + time — used for the "picked up at" stamp so staff can see exactly when.
+  // Full date + time incl. seconds — used for the "picked up at" stamp so
+  // staff can see exactly when the handoff happened (useful for disputes,
+  // shift handovers). Format: "20/04/2026 · 03:45:27 PM".
   const formatDateTime = (dateString: string) => {
     try {
       const date = new Date(dateString);
-      return isValid(date) ? format(date, "dd/MM/yyyy · h:mm a") : "Invalid Date";
+      return isValid(date)
+        ? format(date, "dd/MM/yyyy · hh:mm:ss a")
+        : "Invalid Date";
     } catch {
       return "Invalid Date";
     }
@@ -960,12 +964,17 @@ export const TabbedTransactions: React.FC<TabbedTransactionsProps> = ({
                   </div>
 
                   {invoice.pickedUpAt && (
-                    <div className="mt-2 inline-flex items-center gap-1.5 text-sm font-medium text-green-700 bg-green-50 border border-green-200 rounded-md px-3 py-1.5">
-                      <CheckCircle className="h-4 w-4" />
-                      {language === "ar"
-                        ? "تم الاستلام:"
-                        : "Picked up:"}{" "}
-                      <span className="font-semibold">
+                    <div className="mt-3 inline-flex items-center gap-2 text-base font-semibold text-emerald-800 bg-emerald-50 border-2 border-emerald-300 rounded-xl px-4 py-2 shadow-sm">
+                      <CheckCircle className="h-5 w-5 text-emerald-600" />
+                      <span className="text-sm font-medium text-emerald-700">
+                        {language === "ar"
+                          ? "تم الاستلام:"
+                          : "Picked up:"}
+                      </span>
+                      <span
+                        className="font-bold text-lg tabular-nums"
+                        dir="ltr"
+                      >
                         {formatDateTime(invoice.pickedUpAt)}
                       </span>
                     </div>
