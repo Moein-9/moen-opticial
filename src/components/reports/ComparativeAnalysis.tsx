@@ -555,11 +555,41 @@ const ComparativeAnalysis: React.FC<ComparativeAnalysisProps> = ({
               : invoice.payments || [],
         }));
 
-        // Keep refunded invoices in the main list so the aggregator can still
-        // credit their payments to the original payment-day. The refund-day
-        // subtraction happens separately off refundedInvoices.
-        setInvoices(parsed);
-        setRefundedInvoices(parsed.filter((i: any) => i.is_refunded));
+        // Fetch refunded invoices separately with a server-side filter.
+        // The main `.select("*")` above is capped at 1000 rows by PostgREST,
+        // so a refunded invoice older than the top 1000 by created_at would
+        // be silently dropped — causing refunds to appear as 0 here.
+        const { data: refundsData, error: refundsError } = await (
+          supabase as any
+        )
+          .from("invoices")
+          .select("*")
+          .eq("is_refunded", true)
+          .order("refund_date", { ascending: false });
+
+        if (refundsError) {
+          console.error("Error fetching refunded invoices:", refundsError);
+        }
+
+        const parsedRefunds = (refundsData || []).map((invoice: any) => ({
+          ...invoice,
+          contact_lens_items:
+            typeof invoice.contact_lens_items === "string"
+              ? JSON.parse(invoice.contact_lens_items)
+              : invoice.contact_lens_items,
+          payments:
+            typeof invoice.payments === "string"
+              ? JSON.parse(invoice.payments)
+              : invoice.payments || [],
+        }));
+
+        // Merge refunded rows into main list (dedup by invoice_id) so the
+        // aggregator can credit their original payments to the correct day.
+        const byId = new Map<string, any>();
+        for (const inv of parsed) byId.set(inv.invoice_id, inv);
+        for (const inv of parsedRefunds) byId.set(inv.invoice_id, inv);
+        setInvoices(Array.from(byId.values()));
+        setRefundedInvoices(parsedRefunds);
       } catch (err) {
         console.error(err);
         toast.error("Failed to load report data");

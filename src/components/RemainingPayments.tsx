@@ -239,7 +239,6 @@ export const RemainingPayments: React.FC = () => {
           deposit: newDeposit,
           remaining: newRemaining,
           is_paid: isPaid,
-          last_edited_at: new Date().toISOString(),
         })
         .eq("invoice_id", editTarget.invoice_id);
       if (error) throw error;

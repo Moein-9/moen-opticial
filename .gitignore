@@ -29,3 +29,6 @@ dump-live.mjs
 live-dump.sql
 supabase/.branches/
 supabase/.temp/
+
+.vercel
+.env*.local
