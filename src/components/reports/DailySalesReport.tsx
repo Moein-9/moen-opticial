@@ -20,6 +20,12 @@ import {
   HoverCardContent,
   HoverCardTrigger,
 } from "@/components/ui/hover-card";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Pencil } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { PrintService } from "@/utils/PrintService";
 import { PrintReportButton } from "./PrintReportButton";
@@ -91,6 +97,14 @@ export const DailySalesReport: React.FC = () => {
 
   const [isLoading, setIsLoading] = useState(true);
   const [todaySales, setTodaySales] = useState<Invoice[]>([]);
+  // Cash-basis list for the on-screen "Today's Invoice List" card:
+  // every invoice that either (a) was created today OR (b) received at
+  // least one payment today. Deduped by invoice_id, refunded invoices
+  // filtered out. Populated in fetchTodayData alongside todaySales so
+  // remaining-balance payments on older invoices are visible to staff.
+  const [invoicesWithActivityToday, setInvoicesWithActivityToday] = useState<
+    Invoice[]
+  >([]);
   const [todayRefunds, setTodayRefunds] = useState<Invoice[]>([]);
   const [paymentBreakdown, setPaymentBreakdown] = useState<
     {
@@ -250,12 +264,17 @@ export const DailySalesReport: React.FC = () => {
           return;
         }
 
-        // Fetch invoices with payments made today (not necessarily created today)
+        // Fetch invoices touched today — covers today-created, today-paid
+        // (remaining-balance payments bump updated_at), and today-refunded.
+        // Server-side filter keeps us well under PostgREST's 1000-row cap
+        // (the old ".neq('payments', null)" returned 1000 silently truncated
+        //  rows, dropping older invoices paid today — e.g. شيماء).
         // @ts-ignore - Supabase type definitions may be incomplete for our schema
         const { data: paymentsData, error: paymentsError } = await supabase
           .from("invoices")
           .select("*")
-          .neq("payments", null);
+          .gte("updated_at", startDateStr)
+          .lte("updated_at", endDateStr);
 
         if (paymentsError) {
           console.error("Error fetching invoices with payments:", paymentsError);
@@ -302,6 +321,27 @@ export const DailySalesReport: React.FC = () => {
 
         setTodaySales(parsedSalesData);
         setTodayRefunds(parsedRefundsData);
+
+        // Unified invoice list for the "Today's Invoice List" UI card:
+        // invoices created today PLUS older invoices that received a
+        // payment today (remaining-balance payments). Deduped by
+        // invoice_id so an invoice created AND paid today appears once.
+        // Non-refunded only — refunded invoices are surfaced elsewhere.
+        const todayKeyForList = getPaymentDayKey(startOfDay.toISOString());
+        const activityMap = new Map<string, Invoice>();
+        for (const inv of parsedSalesData as Invoice[]) {
+          if (!inv.is_refunded) activityMap.set(inv.invoice_id, inv);
+        }
+        for (const inv of parsedPaymentsData as Invoice[]) {
+          if (inv.is_refunded) continue;
+          if (activityMap.has(inv.invoice_id)) continue;
+          const pays = parsePayments((inv as any).payments);
+          const hasTodayPayment = pays.some(
+            (p) => getPaymentDayKey(p.date) === todayKeyForList
+          );
+          if (hasTodayPayment) activityMap.set(inv.invoice_id, inv);
+        }
+        setInvoicesWithActivityToday(Array.from(activityMap.values()));
 
         // --- Cash-basis revenue (grouped by payment date, not invoice date) ---
         // Combine: invoices created today + other invoices with payments today.
@@ -402,6 +442,164 @@ export const DailySalesReport: React.FC = () => {
 
     fetchTodayData();
   }, []);
+
+  // Inline edit of a payment method within an invoice's payments[] JSONB.
+  // Safe because we refetch the full row, mutate only payments[index].method,
+  // and write the whole array back. No amount/date is touched.
+  const [savingPaymentEdit, setSavingPaymentEdit] = useState<string | null>(null);
+  const handleUpdatePaymentMethod = async (
+    invoiceId: string,
+    paymentIndex: number,
+    newMethod: string
+  ) => {
+    const editKey = `${invoiceId}:${paymentIndex}`;
+    setSavingPaymentEdit(editKey);
+    try {
+      // @ts-ignore
+      const { data: row, error: fetchErr } = await supabase
+        .from("invoices")
+        .select("*")
+        .eq("invoice_id", invoiceId)
+        .single();
+      if (fetchErr) throw fetchErr;
+
+      // Fallback: if the typed supabase-js client strips `payments` (happens
+      // when the generated Database type is out of date vs. the actual DB
+      // schema), fetch the JSONB column via raw REST to get the real data.
+      let paymentsRaw: any = (row as any)?.payments;
+      if (paymentsRaw === undefined || paymentsRaw === null) {
+        const resp = await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/invoices?invoice_id=eq.${encodeURIComponent(invoiceId)}&select=payments`,
+          {
+            headers: {
+              apikey: import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY,
+              Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY}`,
+            },
+          }
+        );
+        const arr = await resp.json();
+        paymentsRaw = arr?.[0]?.payments;
+      }
+      const pays = parsePayments(paymentsRaw);
+      if (!pays[paymentIndex]) {
+        toast.error(
+          language === "ar"
+            ? "لم يتم العثور على الدفعة"
+            : "Payment row not found"
+        );
+        return;
+      }
+      const prevMethod = pays[paymentIndex].method;
+      pays[paymentIndex] = { ...pays[paymentIndex], method: newMethod };
+
+      // If the edited row is the first payment, also update the invoice's
+      // top-level payment_method so legacy displays stay consistent.
+      const updatePayload: any = { payments: pays };
+      if (paymentIndex === 0) updatePayload.payment_method = newMethod;
+
+      // @ts-ignore
+      const { error: updErr } = await supabase
+        .from("invoices")
+        .update(updatePayload)
+        .eq("invoice_id", invoiceId);
+      if (updErr) throw updErr;
+
+      // Mutate local state in place so UI updates without full refetch.
+      const patch = (list: Invoice[]) =>
+        list.map((inv) =>
+          inv.invoice_id === invoiceId
+            ? {
+                ...inv,
+                payments: pays,
+                payment_method:
+                  paymentIndex === 0 ? newMethod : inv.payment_method,
+              }
+            : inv
+        );
+      setTodaySales((prev) => patch(prev));
+      setInvoicesWithActivityToday((prev) => patch(prev));
+
+      // Recompute today's payment-method breakdown off the updated list.
+      const start = new Date();
+      start.setHours(0, 0, 0, 0);
+      const updatedList = patch(invoicesWithActivityToday);
+      const dayAggMap = aggregatePaymentsByDay(
+        updatedList as unknown as InvoiceLike[],
+        start
+      );
+      const todayBucket = dayAggMap.get(getPaymentDayKey(start.toISOString()));
+      const methodMap = todayBucket?.paymentsByMethod || {};
+      setPaymentBreakdown(
+        Object.entries(methodMap).map(([method, data]) => ({
+          method,
+          amount: data.amount,
+          count: data.count,
+        }))
+      );
+
+      toast.success(
+        language === "ar"
+          ? `تم تعديل طريقة الدفع من ${prevMethod} إلى ${newMethod}`
+          : `Payment method changed from ${prevMethod} to ${newMethod}`
+      );
+    } catch (e) {
+      console.error("Failed to update payment method:", e);
+      toast.error(
+        language === "ar"
+          ? "فشل تعديل طريقة الدفع"
+          : "Failed to update payment method"
+      );
+    } finally {
+      setSavingPaymentEdit(null);
+    }
+  };
+
+  // Render the right icon for a payment method label (Arabic or English)
+  const renderMethodIcon = (method: string, size: "sm" | "md" = "sm") => {
+    const box = size === "md" ? "h-6 w-8" : "h-4 w-6";
+    const walletSize = size === "md" ? 20 : 14;
+    const normalized = (method || "").toLowerCase();
+    if (
+      method === "نقداً" ||
+      method === "نقدا" ||
+      normalized === "cash"
+    ) {
+      return (
+        <Wallet
+          size={walletSize}
+          className="text-emerald-600 shrink-0"
+        />
+      );
+    }
+    if (
+      method === "كي نت" ||
+      normalized === "knet" ||
+      normalized === "k-net"
+    ) {
+      return (
+        <img
+          src="https://kabkg.com/staticsite/images/knet.png"
+          alt="KNET"
+          className={`${box} object-contain bg-white rounded shrink-0`}
+        />
+      );
+    }
+    if (normalized === "visa") {
+      return (
+        <img
+          src="https://cdn-icons-png.flaticon.com/512/196/196578.png"
+          alt="Visa"
+          className={`${box} object-contain bg-white rounded shrink-0`}
+        />
+      );
+    }
+    return (
+      <CreditCard
+        size={walletSize}
+        className="text-slate-500 shrink-0"
+      />
+    );
+  };
 
   const handlePrintReport = () => {
     const today = format(new Date(), "MM/dd/yyyy", { locale: enUS });
@@ -675,7 +873,7 @@ export const DailySalesReport: React.FC = () => {
         </div>
 
         ${
-          todaySales.length > 0
+          todaysPaymentEntries.length > 0
             ? `
           <div class="summary-section">
             <div class="section-header">
@@ -1051,7 +1249,10 @@ export const DailySalesReport: React.FC = () => {
     language === "ar"
       ? format(new Date(), "EEEE، d MMMM yyyy", { locale: ar })
       : format(new Date(), "EEEE, MMM d, yyyy", { locale: enUS });
-  const nonRefundedCount = todaySales.filter((i) => !i.is_refunded).length;
+  // Count of distinct invoices with activity today (created-today OR
+  // received a remaining payment today). invoicesWithActivityToday is
+  // already refunded-filtered and deduped.
+  const nonRefundedCount = invoicesWithActivityToday.length;
 
   return (
     <div className="space-y-6 md:space-y-8">
@@ -1211,16 +1412,15 @@ export const DailySalesReport: React.FC = () => {
           )}
         </div>
         <div className="px-3 md:px-5 pb-5">
-          {todaySales.length > 0 ? (
+          {invoicesWithActivityToday.length > 0 ? (
             <div className="space-y-2.5">
-              {todaySales
-                .filter((invoice) => !invoice.is_refunded)
+              {invoicesWithActivityToday
                 .map((invoice) => {
                   // Balance source of truth = DB flags (is_paid, remaining).
                   // payments[] is only used for the per-day highlight in the
                   // hover card. Legacy invoices may have empty payments[] but
                   // still be paid, so we trust is_paid/remaining for the row.
-                  const allPayments = parsePayments(invoice as unknown as InvoiceLike);
+                  const allPayments = parsePayments((invoice as any).payments);
                   const todayKey = getPaymentDayKey(new Date().toISOString());
                   const rawPaidToday = allPayments
                     .filter((p) => getPaymentDayKey(p.date) === todayKey)
@@ -1340,19 +1540,37 @@ export const DailySalesReport: React.FC = () => {
                             </div>
                           )}
                           {balanceAfter > 0 ? (
-                            <div className="flex items-baseline gap-2 justify-end">
+                            <div className="flex flex-wrap items-center gap-1.5 justify-end">
                               <span className="text-xs uppercase tracking-wide text-amber-700 font-semibold">
                                 {language === "ar" ? "المتبقي" : "Balance"}
                               </span>
                               <span className="text-lg font-bold text-amber-700 tabular-nums">
                                 {balanceAfter.toFixed(2)}
                               </span>
+                              {paidToday > 0 &&
+                                invoice.created_at &&
+                                getPaymentDayKey(invoice.created_at) !== todayKey && (
+                                  <Badge className="bg-amber-500 text-white hover:bg-amber-500 border-0 text-[10px] font-bold px-1.5 py-0.5">
+                                    {language === "ar"
+                                      ? "دفعة متبقي"
+                                      : "Balance payment"}
+                                  </Badge>
+                                )}
                             </div>
                           ) : (
-                            <div className="flex items-center gap-1.5 justify-end">
+                            <div className="flex flex-wrap items-center gap-1.5 justify-end">
                               <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100 border-0 text-xs font-semibold px-2 py-0.5">
                                 {language === "ar" ? "مدفوعة بالكامل" : "Fully paid"}
                               </Badge>
+                              {paidToday > 0 &&
+                                invoice.created_at &&
+                                getPaymentDayKey(invoice.created_at) !== todayKey && (
+                                  <Badge className="bg-amber-500 text-white hover:bg-amber-500 border-0 text-[10px] font-bold px-1.5 py-0.5">
+                                    {language === "ar"
+                                      ? "دفعة متبقي"
+                                      : "Balance payment"}
+                                  </Badge>
+                                )}
                             </div>
                           )}
                         </div>
@@ -1562,6 +1780,208 @@ export const DailySalesReport: React.FC = () => {
                               ).toLocaleDateString()}
                             </p>
                           </div>
+                        </div>
+
+                        <div className="bg-white p-4 rounded-xl border border-slate-200">
+                          <div className="flex items-center justify-between mb-3">
+                            <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                              {language === "ar" ? "سجل الدفعات" : "Payment timeline"}
+                            </h4>
+                            <span className="text-[10px] text-slate-400">
+                              {displayPayments.length}{" "}
+                              {language === "ar"
+                                ? displayPayments.length === 1
+                                  ? "دفعة"
+                                  : "دفعات"
+                                : displayPayments.length === 1
+                                  ? "payment"
+                                  : "payments"}
+                            </span>
+                          </div>
+                          {displayPayments.length === 0 ? (
+                            <p className="text-sm text-slate-400 italic">
+                              {language === "ar"
+                                ? "لا توجد دفعات مسجلة"
+                                : "No payments recorded"}
+                            </p>
+                          ) : (
+                            <div className="space-y-2">
+                              {displayPayments
+                                .map((p, origIdx) => ({ p, origIdx }))
+                                .sort((a, b) =>
+                                  (a.p.date || "").localeCompare(b.p.date || "")
+                                )
+                                .map(({ p, origIdx }, idx) => {
+                                  const isPayToday =
+                                    getPaymentDayKey(p.date) === todayKey;
+                                  const isDeposit = idx === 0;
+                                  const isSynthetic = (p as any).synthetic;
+                                  const editKey = `${invoice.invoice_id}:${origIdx}`;
+                                  const isSaving =
+                                    savingPaymentEdit === editKey;
+                                  const label = isDeposit
+                                    ? language === "ar"
+                                      ? "دفعة أولى"
+                                      : "Deposit"
+                                    : language === "ar"
+                                      ? "دفعة متبقي"
+                                      : "Balance payment";
+                                  const methodOptions =
+                                    language === "ar"
+                                      ? ["نقداً", "كي نت", "Visa"]
+                                      : ["Cash", "KNET", "Visa"];
+                                  // Unify Arabic/English labels so edits to
+                                  // "Cash" overwrite rows saved as "نقداً"
+                                  // with the user's picked label verbatim.
+                                  const dateStr = p.date
+                                    ? new Date(p.date).toLocaleDateString(
+                                        language === "ar" ? "ar-KW" : "en-GB",
+                                        {
+                                          day: "2-digit",
+                                          month: "short",
+                                          year: "numeric",
+                                        }
+                                      )
+                                    : "-";
+                                  return (
+                                    <div
+                                      key={idx}
+                                      className={`flex items-center gap-3 p-2.5 rounded-lg border ${
+                                        isPayToday
+                                          ? "bg-emerald-50 border-emerald-200"
+                                          : isDeposit
+                                            ? "bg-sky-50/60 border-sky-100"
+                                            : "bg-amber-50/40 border-amber-100"
+                                      }`}
+                                    >
+                                      <Badge
+                                        className={`text-[10px] font-bold shrink-0 border-0 px-2 py-0.5 ${
+                                          isDeposit
+                                            ? "bg-sky-600 text-white"
+                                            : "bg-amber-500 text-white"
+                                        }`}
+                                      >
+                                        {label}
+                                      </Badge>
+                                      {isPayToday && (
+                                        <Badge className="text-[9px] font-bold shrink-0 border-0 px-1.5 py-0 bg-emerald-600 text-white uppercase">
+                                          {language === "ar" ? "اليوم" : "Today"}
+                                        </Badge>
+                                      )}
+                                      <div className="flex-1 min-w-0">
+                                        <div className="text-sm font-medium text-slate-700">
+                                          {dateStr}
+                                        </div>
+                                        <div className="mt-0.5">
+                                          {isSynthetic ? (
+                                            <span className="text-xs text-slate-500">
+                                              {p.method || "-"}
+                                            </span>
+                                          ) : (
+                                            <Popover>
+                                              <PopoverTrigger asChild>
+                                                <button
+                                                  type="button"
+                                                  disabled={isSaving}
+                                                  className="inline-flex items-center gap-2 text-sm font-semibold text-sky-800 bg-sky-100 hover:bg-sky-200 active:bg-sky-300 border border-sky-300 hover:border-sky-500 rounded-lg px-3 py-1.5 transition-colors disabled:opacity-60 shadow-sm"
+                                                  onClick={(e) => e.stopPropagation()}
+                                                  title={
+                                                    language === "ar"
+                                                      ? "انقر لتغيير طريقة الدفع"
+                                                      : "Click to change payment method"
+                                                  }
+                                                >
+                                                  <Pencil size={14} className="text-sky-700" />
+                                                  <span className="font-bold">
+                                                    {language === "ar" ? "تعديل" : "Edit"}
+                                                  </span>
+                                                  <span className="text-sky-400">·</span>
+                                                  <span className="bg-white text-sky-800 px-2 py-0.5 rounded-md font-bold border border-sky-200 inline-flex items-center gap-1.5">
+                                                    {renderMethodIcon(p.method || "", "sm")}
+                                                    {p.method || "-"}
+                                                  </span>
+                                                </button>
+                                              </PopoverTrigger>
+                                              <PopoverContent
+                                                className="w-48 p-2"
+                                                align="start"
+                                                onClick={(e) => e.stopPropagation()}
+                                              >
+                                                <div className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold px-1 pb-1.5">
+                                                  {language === "ar"
+                                                    ? "تغيير طريقة الدفع"
+                                                    : "Change payment method"}
+                                                </div>
+                                                <div className="flex flex-col gap-1">
+                                                  {methodOptions.map((m) => (
+                                                    <button
+                                                      key={m}
+                                                      type="button"
+                                                      disabled={
+                                                        isSaving || m === p.method
+                                                      }
+                                                      onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleUpdatePaymentMethod(
+                                                          invoice.invoice_id,
+                                                          origIdx,
+                                                          m
+                                                        );
+                                                      }}
+                                                      className={`flex items-center gap-2.5 text-sm text-start px-2.5 py-2 rounded hover:bg-slate-100 transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
+                                                        m === p.method
+                                                          ? "bg-slate-100 font-semibold"
+                                                          : ""
+                                                      }`}
+                                                    >
+                                                      {renderMethodIcon(m, "md")}
+                                                      <span className="flex-1">
+                                                        {m}
+                                                      </span>
+                                                      {m === p.method && (
+                                                        <span className="text-[10px] text-slate-400">
+                                                          {language === "ar"
+                                                            ? "(الحالي)"
+                                                            : "(current)"}
+                                                        </span>
+                                                      )}
+                                                    </button>
+                                                  ))}
+                                                </div>
+                                              </PopoverContent>
+                                            </Popover>
+                                          )}
+                                        </div>
+                                      </div>
+                                      <div className="text-base font-bold tabular-nums text-slate-900 shrink-0">
+                                        {Number(p.amount).toFixed(2)}{" "}
+                                        <span className="text-xs text-slate-400 font-medium">
+                                          {t.currency}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              <div className="flex items-center justify-between pt-2 mt-2 border-t border-dashed border-slate-200">
+                                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                                  {language === "ar"
+                                    ? "إجمالي المدفوع"
+                                    : "Total paid"}
+                                </span>
+                                <span className="text-base font-bold text-slate-900 tabular-nums">
+                                  {displayPayments
+                                    .reduce(
+                                      (s, p) => s + (Number(p.amount) || 0),
+                                      0
+                                    )
+                                    .toFixed(2)}{" "}
+                                  <span className="text-xs text-slate-400 font-medium">
+                                    {t.currency}
+                                  </span>
+                                </span>
+                              </div>
+                            </div>
+                          )}
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
