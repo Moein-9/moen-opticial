@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { format } from "date-fns";
-import { enUS } from "date-fns/locale";
+import { enUS, ar } from "date-fns/locale";
 import { useLanguageStore } from "@/store/languageStore";
 import {
   ChartLine,
@@ -1047,7 +1047,10 @@ export const DailySalesReport: React.FC = () => {
     });
   };
 
-  const todayLabel = format(new Date(), "EEEE, MMM d, yyyy", { locale: enUS });
+  const todayLabel =
+    language === "ar"
+      ? format(new Date(), "EEEE، d MMMM yyyy", { locale: ar })
+      : format(new Date(), "EEEE, MMM d, yyyy", { locale: enUS });
   const nonRefundedCount = todaySales.filter((i) => !i.is_refunded).length;
 
   return (

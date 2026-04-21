@@ -397,7 +397,7 @@ export const InvoiceStepPayment: React.FC = () => {
             onClick={() => selectPaymentMethod("Visa")}
           >
             <img
-              src="https://upload.wikimedia.org/wikipedia/commons/5/5e/Visa_Inc._logo.svg"
+              src="https://cdn-icons-png.flaticon.com/512/196/196578.png"
               alt="Visa"
               title="Visa"
               className="w-12 h-10 object-contain mx-auto mb-2 bg-white rounded"

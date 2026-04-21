@@ -11,7 +11,10 @@
  *
  * Refunds: the original payments[] entries stay on their original days (cash
  * WAS received that day). The refund itself is a separate negative event on
- * refund_date and is handled by the existing refund path — not here.
+ * refund_date and is handled by the caller — this aggregator INCLUDES payments
+ * from refunded invoices so the original day's total is not retroactively
+ * rewritten. Nets out across the range: +100 on payment day, -100 on refund
+ * day = 0 total, which is how the store owner thinks about the books.
  */
 export interface InvoicePayment {
   date: string;
@@ -120,8 +123,10 @@ export interface DailyAggregate {
 
 /**
  * Flatten invoices[].payments[] across a date range (inclusive), grouped by
- * payment day. Refunded invoices are EXCLUDED (callers compute refunds
- * separately off refund_date).
+ * payment day. Refunded invoices are INCLUDED — their payments stay on their
+ * original payment day so "Apr 15 revenue" does not silently change after a
+ * refund is processed on Apr 20. Callers subtract the refund separately on
+ * refund_date so the totals net out over the full range.
  *
  * @param invoices All invoices from Supabase (refunded and non-refunded mixed)
  * @param from    Start of range (inclusive). If omitted, no lower bound.
@@ -140,7 +145,9 @@ export function aggregatePaymentsByDay(
   const fromStartMs = from ? new Date(from.getFullYear(), from.getMonth(), from.getDate(), 0, 0, 0, 0).getTime() : -Infinity;
 
   for (const invoice of invoices) {
-    if (invoice.is_refunded) continue;
+    // Include refunded invoices: the cash genuinely was received on the
+    // payment date. The refund is a separate negative event keyed on
+    // refund_date that the caller subtracts. See block comment above.
     const payments = parsePayments(invoice.payments);
     for (const payment of payments) {
       const t = new Date(payment.date).getTime();

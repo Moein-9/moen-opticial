@@ -18,6 +18,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { format } from "date-fns";
+import { ar as arLocale, enUS as enLocale } from "date-fns/locale";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ContactLensForm } from "@/components/ContactLensForm";
 import { useLanguageStore } from "@/store/languageStore";
@@ -465,8 +466,10 @@ export const CreateClient: React.FC = () => {
   };
 
   return (
-    <div className={`space-y-6 ${dirClass}`}>
-      <h2 className={`text-2xl font-bold mb-4 ${textAlignClass}`}>
+    <div className={`w-full max-w-6xl mx-auto space-y-6 ${dirClass}`}>
+      <h2
+        className={`text-xl sm:text-2xl font-bold text-slate-900 mb-2 ${textAlignClass}`}
+      >
         {t("createClientTitle")}
       </h2>
 
@@ -477,30 +480,30 @@ export const CreateClient: React.FC = () => {
           setActiveTab(value as "glasses" | "contactLenses")
         }
       >
-        <TabsList className="mb-6 w-full md:w-auto bg-slate-100 border-slate-200 p-1 shadow-md">
+        <TabsList className="mb-6 grid grid-cols-2 w-full sm:inline-flex sm:w-auto gap-1 bg-slate-100 border border-slate-200 p-1 rounded-xl shadow-sm">
           <TabsTrigger
             value="glasses"
-            className="px-8 py-3 text-base font-semibold data-[state=active]:bg-primary data-[state=active]:text-white"
+            className="w-full sm:w-auto px-4 sm:px-8 py-2.5 sm:py-3 text-sm sm:text-base font-semibold rounded-lg data-[state=active]:bg-primary data-[state=active]:text-white transition-all"
           >
             {t("prescriptionGlasses")}
           </TabsTrigger>
           <TabsTrigger
             value="contactLenses"
-            className="px-8 py-3 text-base font-semibold data-[state=active]:bg-primary data-[state=active]:text-white"
+            className="w-full sm:w-auto px-4 sm:px-8 py-2.5 sm:py-3 text-sm sm:text-base font-semibold rounded-lg data-[state=active]:bg-primary data-[state=active]:text-white transition-all"
           >
             {t("contactLensesTab")}
           </TabsTrigger>
         </TabsList>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="bg-card rounded-md p-4 border">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8 items-start">
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 md:p-6 lg:p-8 shadow-sm">
             <div
-              className={`text-lg font-semibold text-primary pb-2 mb-4 border-b border-primary ${textAlignClass}`}
+              className={`text-lg sm:text-xl font-bold text-slate-900 pb-3 mb-5 border-b border-slate-200 ${textAlignClass}`}
             >
               {t("personalInfo")}
             </div>
 
-            <div className="space-y-4">
+            <div className="space-y-5">
               <div className="space-y-2">
                 <Label htmlFor="name" className={textAlignClass}>
                   {t("name")}
@@ -510,7 +513,7 @@ export const CreateClient: React.FC = () => {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder={t("fullName")}
-                  className={textAlignClass}
+                  className={`h-11 w-full ${textAlignClass}`}
                 />
               </div>
 
@@ -523,7 +526,7 @@ export const CreateClient: React.FC = () => {
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                   placeholder={t("phoneNumber")}
-                  className={textAlignClass}
+                  className={`h-11 w-full ${textAlignClass}`}
                 />
               </div>
 
@@ -531,10 +534,10 @@ export const CreateClient: React.FC = () => {
                 <Label htmlFor="dob" className={textAlignClass}>
                   {t("dateOfBirth")}
                 </Label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 xs:grid-cols-3 sm:grid-cols-3 gap-2">
                   <select
                     id="dobDay"
-                    className={`h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50 ${textAlignClass}`}
+                    className={`h-11 w-full min-w-0 rounded-md border border-input bg-background px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50 ${textAlignClass}`}
                     value={dobDay}
                     onChange={(e) => setDobDay(e.target.value)}
                     disabled={noDob}
@@ -546,7 +549,7 @@ export const CreateClient: React.FC = () => {
                   </select>
                   <select
                     id="dobMonth"
-                    className={`h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50 ${textAlignClass}`}
+                    className={`h-11 w-full min-w-0 rounded-md border border-input bg-background px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50 ${textAlignClass}`}
                     value={dobMonth}
                     onChange={(e) => setDobMonth(e.target.value)}
                     disabled={noDob}
@@ -558,7 +561,7 @@ export const CreateClient: React.FC = () => {
                   </select>
                   <select
                     id="dobYear"
-                    className={`h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50 ${textAlignClass}`}
+                    className={`h-11 w-full min-w-0 rounded-md border border-input bg-background px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50 ${textAlignClass}`}
                     value={dobYear}
                     onChange={(e) => setDobYear(e.target.value)}
                     disabled={noDob}
@@ -571,9 +574,9 @@ export const CreateClient: React.FC = () => {
                 </div>
 
                 <div
-                  className={`flex items-center space-x-2 ${
-                    language === "ar" ? "space-x-reverse" : ""
-                  } mt-2`}
+                  className={`flex items-center gap-2 mt-3 ${
+                    language === "ar" ? "flex-row-reverse justify-end" : ""
+                  }`}
                 >
                   <Checkbox
                     id="noDobCheck"
@@ -582,9 +585,7 @@ export const CreateClient: React.FC = () => {
                   />
                   <Label
                     htmlFor="noDobCheck"
-                    className={`font-normal text-sm ${
-                      language === "ar" ? "mr-2" : "ml-2"
-                    }`}
+                    className="font-normal text-sm cursor-pointer"
                   >
                     {t("clientDidntShareDOB")}
                   </Label>
@@ -594,7 +595,7 @@ export const CreateClient: React.FC = () => {
               <div className="space-y-2">
                 <Label
                   htmlFor="notes"
-                  className={`flex items-center gap-1 ${textAlignClass}`}
+                  className={`flex items-center gap-1.5 ${textAlignClass}`}
                 >
                   <MessageSquare className="h-4 w-4" />
                   {t("notes")}
@@ -606,7 +607,7 @@ export const CreateClient: React.FC = () => {
                   placeholder={
                     t("notesPlaceholder") || "Add notes about this client..."
                   }
-                  className={textAlignClass}
+                  className={`w-full min-h-[96px] ${textAlignClass}`}
                   dir="auto"
                 />
               </div>
@@ -615,45 +616,79 @@ export const CreateClient: React.FC = () => {
 
           <div>
             <TabsContent value="glasses" className="mt-0 p-0">
-              <div className="bg-card rounded-md p-4 border">
+              <div className="bg-white border border-slate-200 rounded-2xl p-5 md:p-6 lg:p-8 shadow-sm space-y-5">
                 <div
-                  className={`text-lg font-semibold text-primary pb-2 mb-4 border-b border-primary ${textAlignClass}`}
+                  className={`text-lg sm:text-xl font-bold text-slate-900 pb-3 border-b border-slate-200 ${textAlignClass}`}
                 >
                   {t("glassesPrescription")}
                 </div>
 
-                <div className="mb-4">
+                <div className="space-y-2">
                   <Label htmlFor="rxDate" className={textAlignClass}>
                     {t("prescriptionDate")}
                   </Label>
-                  <div className="mt-1">
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant={"outline"}
-                          className={`w-full justify-start text-right ${
-                            !rxDate ? "text-muted-foreground" : ""
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant={"outline"}
+                        className={`h-11 w-full justify-start ${
+                          language === "ar" ? "text-right" : "text-left"
+                        } ${!rxDate ? "text-muted-foreground" : ""}`}
+                      >
+                        <CalendarIcon
+                          className={`h-4 w-4 ${
+                            language === "ar" ? "ms-0 me-2" : "me-2"
                           }`}
-                        >
-                          <CalendarIcon className="mr-2 h-4 w-4" />
-                          {rxDate
-                            ? format(rxDate, "PPP")
-                            : t("choosePrescriptionDate")}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar
-                          mode="single"
-                          selected={rxDate}
-                          onSelect={setRxDate}
-                          initialFocus
                         />
-                      </PopoverContent>
-                    </Popover>
-                  </div>
+                        {rxDate ? (
+                          // Lock the visual order to "YEAR | MONTH | DAY"
+                          // reading left-to-right regardless of bidi. We use
+                          // `unicode-bidi: bidi-override` + explicit dir=ltr
+                          // so the browser renders characters exactly in
+                          // source order (no bidi re-shuffling).
+                          <span
+                            dir="ltr"
+                            style={{
+                              unicodeBidi: "bidi-override",
+                              direction: "ltr",
+                            }}
+                            className="inline-block"
+                          >
+                            {format(rxDate, "yyyy", {
+                              locale:
+                                language === "ar" ? arLocale : enLocale,
+                            })}
+                            {" | "}
+                            <span style={{ unicodeBidi: "isolate" }}>
+                              {format(rxDate, "MMMM", {
+                                locale:
+                                  language === "ar" ? arLocale : enLocale,
+                              })}
+                            </span>
+                            {" | "}
+                            {format(rxDate, "d", {
+                              locale:
+                                language === "ar" ? arLocale : enLocale,
+                            })}
+                          </span>
+                        ) : (
+                          t("choosePrescriptionDate")
+                        )}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={rxDate}
+                        onSelect={setRxDate}
+                        initialFocus
+                        locale={language === "ar" ? arLocale : enLocale}
+                      />
+                    </PopoverContent>
+                  </Popover>
                 </div>
 
-                <div className="overflow-x-auto">
+                <div>
                   {/* Shared suggestion lists — users can free-type OR pick from these */}
                   <datalist id="rx-sph-options">{generateSphOptions()}</datalist>
                   <datalist id="rx-cyl-options">{generateCylOptions()}</datalist>
@@ -661,66 +696,83 @@ export const CreateClient: React.FC = () => {
                   <datalist id="rx-add-options">{generateAddOptions()}</datalist>
                   <datalist id="rx-pd-options">{generatePdOptions()}</datalist>
 
-                  <table className="w-full border-collapse">
+                  {/* Fluid table — always fits the container width. The
+                      first column always shows just "OD" / "OS" so the
+                      numeric cells stay aligned and the full Arabic/English
+                      eye label (which is long) never overflows its cell. */}
+                  <table className="w-full table-fixed border-collapse rounded-lg overflow-hidden">
+                    <colgroup>
+                      <col className="w-[16%]" />
+                      <col className="w-[16.8%]" />
+                      <col className="w-[16.8%]" />
+                      <col className="w-[16.8%]" />
+                      <col className="w-[16.8%]" />
+                      <col className="w-[16.8%]" />
+                    </colgroup>
                     <thead>
-                      <tr>
-                        <th className="text-center border border-border bg-muted p-2"></th>
-                        <th className="text-center border border-border bg-muted p-2">
+                      <tr className="bg-muted/40">
+                        <th className="text-center border border-border p-2 md:p-3 text-xs md:text-sm font-semibold text-slate-700">
+                          {language === "ar" ? "العين" : "Eye"}
+                        </th>
+                        <th className="text-center border border-border p-2 md:p-3 text-xs md:text-sm font-semibold text-slate-700 whitespace-nowrap tabular-nums">
                           SPH
                         </th>
-                        <th className="text-center border border-border bg-muted p-2">
+                        <th className="text-center border border-border p-2 md:p-3 text-xs md:text-sm font-semibold text-slate-700 whitespace-nowrap tabular-nums">
                           CYL
                         </th>
-                        <th className="text-center border border-border bg-muted p-2">
+                        <th className="text-center border border-border p-2 md:p-3 text-xs md:text-sm font-semibold text-slate-700 whitespace-nowrap tabular-nums">
                           AXIS
                         </th>
-                        <th className="text-center border border-border bg-muted p-2">
+                        <th className="text-center border border-border p-2 md:p-3 text-xs md:text-sm font-semibold text-slate-700 whitespace-nowrap tabular-nums">
                           ADD
                         </th>
-                        <th className="text-center border border-border bg-muted p-2">
+                        <th className="text-center border border-border p-2 md:p-3 text-xs md:text-sm font-semibold text-slate-700 whitespace-nowrap tabular-nums">
                           PD
                         </th>
                       </tr>
                     </thead>
                     <tbody>
-                      <tr>
-                        <th className="text-center border border-border bg-muted p-2">
-                          {t("rightEye")} (OD)
+                      <tr className="hover:bg-muted/30 transition-colors">
+                        <th className="text-center border border-border bg-muted/40 p-2 md:p-3 font-bold text-slate-900">
+                          <div className="text-sm md:text-base">OD</div>
+                          <div className="text-[10px] md:text-xs font-normal text-slate-600 mt-0.5">
+                            {language === "ar" ? "اليمنى" : "Right"}
+                          </div>
                         </th>
-                        <td className="border border-border p-1.5">
+                        <td className="border border-border p-1.5 md:p-2">
                           <Input
                             type="text"
                             list="rx-sph-options"
                             inputMode="decimal"
                             placeholder="—"
                             aria-label={`SPH ${t("rightEye")}`}
-                            className="h-9 text-center font-mono tabular-nums"
+                            className="h-10 md:h-11 text-center font-mono tabular-nums text-xs sm:text-sm px-0.5"
                             value={sphOD}
                             onChange={(e) => setSphOD(e.target.value)}
                             onBlur={(e) => setSphOD(snapSph(e.target.value))}
                           />
                         </td>
-                        <td className="border border-border p-1.5">
+                        <td className="border border-border p-1.5 md:p-2">
                           <Input
                             type="text"
                             list="rx-cyl-options"
                             inputMode="decimal"
                             placeholder="—"
                             aria-label={`CYL ${t("rightEye")}`}
-                            className="h-9 text-center font-mono tabular-nums"
+                            className="h-10 md:h-11 text-center font-mono tabular-nums text-xs sm:text-sm px-0.5"
                             value={cylOD}
                             onChange={(e) => setCylOD(e.target.value)}
                             onBlur={(e) => setCylOD(snapCyl(e.target.value))}
                           />
                         </td>
-                        <td className="border border-border p-1.5">
+                        <td className="border border-border p-1.5 md:p-2">
                           <Input
                             type="text"
                             list="rx-axis-options"
                             inputMode="numeric"
                             placeholder="—"
                             aria-label={`AXIS ${t("rightEye")}`}
-                            className={`h-9 text-center font-mono tabular-nums ${
+                            className={`h-10 md:h-11 text-center font-mono tabular-nums text-xs sm:text-sm px-0.5 ${
                               validationErrors.rightEye.cylinderAxisError
                                 ? "border-red-500 bg-red-50 focus-visible:ring-red-400"
                                 : ""
@@ -730,71 +782,74 @@ export const CreateClient: React.FC = () => {
                             onBlur={(e) => setAxisOD(snapAxis(e.target.value))}
                           />
                         </td>
-                        <td className="border border-border p-1.5">
+                        <td className="border border-border p-1.5 md:p-2">
                           <Input
                             type="text"
                             list="rx-add-options"
                             inputMode="decimal"
                             placeholder="—"
                             aria-label={`ADD ${t("rightEye")}`}
-                            className="h-9 text-center font-mono tabular-nums"
+                            className="h-10 md:h-11 text-center font-mono tabular-nums text-xs sm:text-sm px-0.5"
                             value={addOD}
                             onChange={(e) => setAddOD(e.target.value)}
                             onBlur={(e) => setAddOD(snapAdd(e.target.value))}
                           />
                         </td>
-                        <td className="border border-border p-1.5">
+                        <td className="border border-border p-1.5 md:p-2">
                           <Input
                             type="text"
                             list="rx-pd-options"
                             inputMode="decimal"
                             placeholder="—"
                             aria-label={`PD ${t("rightEye")}`}
-                            className="h-9 text-center font-mono tabular-nums"
+                            className="h-10 md:h-11 text-center font-mono tabular-nums text-xs sm:text-sm px-0.5"
                             value={pdRight}
                             onChange={(e) => setPdRight(e.target.value)}
                             onBlur={(e) => setPdRight(snapPd(e.target.value))}
                           />
                         </td>
                       </tr>
-                      <tr>
-                        <th className="text-center border border-border bg-muted p-2">
-                          {t("leftEye")} (OS)
+                      <tr className="hover:bg-muted/30 transition-colors">
+                        <th className="text-center border border-border bg-muted/40 p-2 md:p-3 font-bold text-slate-900">
+                          <div className="text-sm md:text-base">OS</div>
+                          <div className="text-[10px] md:text-xs font-normal text-slate-600 mt-0.5">
+                            {language === "ar" ? "اليسرى" : "Left"}
+                          </div>
                         </th>
-                        <td className="border border-border p-1.5">
+                        <td className="border border-border p-1.5 md:p-2">
                           <Input
                             type="text"
                             list="rx-sph-options"
                             inputMode="decimal"
                             placeholder="—"
                             aria-label={`SPH ${t("leftEye")}`}
-                            className="h-9 text-center font-mono tabular-nums"
+                            className="h-10 md:h-11 text-center font-mono tabular-nums text-xs sm:text-sm px-0.5"
                             value={sphOS}
                             onChange={(e) => setSphOS(e.target.value)}
                             onBlur={(e) => setSphOS(snapSph(e.target.value))}
                           />
                         </td>
-                        <td className="border border-border p-1.5">
+                        <td className="border border-border p-1.5 md:p-2">
                           <Input
                             type="text"
                             list="rx-cyl-options"
                             inputMode="decimal"
                             placeholder="—"
                             aria-label={`CYL ${t("leftEye")}`}
-                            className="h-9 text-center font-mono tabular-nums"
+                            className="h-10 md:h-11 text-center font-mono tabular-nums text-xs sm:text-sm px-0.5"
                             value={cylOS}
                             onChange={(e) => setCylOS(e.target.value)}
                             onBlur={(e) => setCylOS(snapCyl(e.target.value))}
                           />
                         </td>
-                        <td className="border border-border p-1.5">
+                        <td className="border border-border p-1.5 md:p-2">
                           <Input
                             type="text"
                             list="rx-axis-options"
                             inputMode="numeric"
                             placeholder="—"
                             aria-label={`AXIS ${t("leftEye")}`}
-                            className={`h-9 text-center font-mono tabular-nums ${
+                            className={`h-10 md:h-11 text-center font-mono tabular-nums text-xs sm:text-sm px-0.5 ${
                               validationErrors.leftEye.cylinderAxisError
                                 ? "border-red-500 bg-red-50 focus-visible:ring-red-400"
                                 : ""
@@ -804,27 +859,27 @@ export const CreateClient: React.FC = () => {
                             onBlur={(e) => setAxisOS(snapAxis(e.target.value))}
                           />
                         </td>
-                        <td className="border border-border p-1.5">
+                        <td className="border border-border p-1.5 md:p-2">
                           <Input
                             type="text"
                             list="rx-add-options"
                             inputMode="decimal"
                             placeholder="—"
                             aria-label={`ADD ${t("leftEye")}`}
-                            className="h-9 text-center font-mono tabular-nums"
+                            className="h-10 md:h-11 text-center font-mono tabular-nums text-xs sm:text-sm px-0.5"
                             value={addOS}
                             onChange={(e) => setAddOS(e.target.value)}
                             onBlur={(e) => setAddOS(snapAdd(e.target.value))}
                           />
                         </td>
-                        <td className="border border-border p-1.5">
+                        <td className="border border-border p-1.5 md:p-2">
                           <Input
                             type="text"
                             list="rx-pd-options"
                             inputMode="decimal"
                             placeholder="—"
                             aria-label={`PD ${t("leftEye")}`}
-                            className="h-9 text-center font-mono tabular-nums"
+                            className="h-10 md:h-11 text-center font-mono tabular-nums text-xs sm:text-sm px-0.5"
                             value={pdLeft}
                             onChange={(e) => setPdLeft(e.target.value)}
                             onBlur={(e) => setPdLeft(snapPd(e.target.value))}
@@ -836,9 +891,9 @@ export const CreateClient: React.FC = () => {
                 </div>
 
                 {hasValidationErrors && (
-                  <div className="p-3 mt-3 bg-red-50 border border-red-200 rounded-md flex items-center gap-2">
-                    <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0" />
-                    <p className="text-red-700 text-sm">
+                  <div className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2">
+                    <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                    <p className="text-red-700 text-sm leading-relaxed">
                       {t("axisValidationError") ||
                         "The AXIS values you've inserted are not correct! If CYL value is provided, AXIS value is required."}
                     </p>
@@ -848,70 +903,116 @@ export const CreateClient: React.FC = () => {
             </TabsContent>
 
             <TabsContent value="contactLenses" className="mt-0 p-0">
-              <div className="bg-card rounded-md p-4 border">
+              <div className="bg-white border border-slate-200 rounded-2xl p-5 md:p-6 lg:p-8 shadow-sm space-y-5">
                 <div
-                  className={`text-lg font-semibold text-primary pb-2 mb-4 border-b border-primary ${textAlignClass}`}
+                  className={`text-lg sm:text-xl font-bold text-slate-900 pb-3 border-b border-slate-200 ${textAlignClass}`}
                 >
                   {t("contactLensPrescription")}
                 </div>
 
-                <div className="mb-4">
+                <div className="space-y-2">
                   <Label htmlFor="contactRxDate" className={textAlignClass}>
                     {t("prescriptionDate")}
                   </Label>
-                  <div className="mt-1">
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant={"outline"}
-                          className={`w-full justify-start text-right ${
-                            !rxDate ? "text-muted-foreground" : ""
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant={"outline"}
+                        className={`h-11 w-full justify-start ${
+                          language === "ar" ? "text-right" : "text-left"
+                        } ${!rxDate ? "text-muted-foreground" : ""}`}
+                      >
+                        <CalendarIcon
+                          className={`h-4 w-4 ${
+                            language === "ar" ? "ms-0 me-2" : "me-2"
                           }`}
-                        >
-                          <CalendarIcon className="mr-2 h-4 w-4" />
-                          {rxDate
-                            ? format(rxDate, "PPP")
-                            : t("choosePrescriptionDate")}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar
-                          mode="single"
-                          selected={rxDate}
-                          onSelect={setRxDate}
-                          initialFocus
                         />
-                      </PopoverContent>
-                    </Popover>
-                  </div>
+                        {rxDate ? (
+                          // Lock the visual order to "YEAR | MONTH | DAY"
+                          // reading left-to-right regardless of bidi. We use
+                          // `unicode-bidi: bidi-override` + explicit dir=ltr
+                          // so the browser renders characters exactly in
+                          // source order (no bidi re-shuffling).
+                          <span
+                            dir="ltr"
+                            style={{
+                              unicodeBidi: "bidi-override",
+                              direction: "ltr",
+                            }}
+                            className="inline-block"
+                          >
+                            {format(rxDate, "yyyy", {
+                              locale:
+                                language === "ar" ? arLocale : enLocale,
+                            })}
+                            {" | "}
+                            <span style={{ unicodeBidi: "isolate" }}>
+                              {format(rxDate, "MMMM", {
+                                locale:
+                                  language === "ar" ? arLocale : enLocale,
+                              })}
+                            </span>
+                            {" | "}
+                            {format(rxDate, "d", {
+                              locale:
+                                language === "ar" ? arLocale : enLocale,
+                            })}
+                          </span>
+                        ) : (
+                          t("choosePrescriptionDate")
+                        )}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={rxDate}
+                        onSelect={setRxDate}
+                        initialFocus
+                        locale={language === "ar" ? arLocale : enLocale}
+                      />
+                    </PopoverContent>
+                  </Popover>
                 </div>
 
-                <ContactLensForm
-                  rxData={contactLensRx}
-                  onChange={setContactLensRx}
-                />
+                <div className="-mx-5 md:-mx-6 lg:-mx-8 px-5 md:px-6 lg:px-8 overflow-x-auto">
+                  <ContactLensForm
+                    rxData={contactLensRx}
+                    onChange={setContactLensRx}
+                  />
+                </div>
               </div>
             </TabsContent>
           </div>
         </div>
       </Tabs>
 
-      <Button
-        className="mt-6"
-        onClick={handleSubmit}
-        disabled={
-          isSubmitting || (activeTab === "glasses" && hasValidationErrors)
-        }
+      <div
+        className={`flex flex-col-reverse sm:flex-row sm:items-center pt-2 ${
+          language === "ar" ? "sm:justify-start" : "sm:justify-end"
+        }`}
       >
-        {isSubmitting ? (
-          <>
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            {t("saving")}
-          </>
-        ) : (
-          t("saveAndContinue")
-        )}
-      </Button>
+        <Button
+          className="h-11 w-full sm:w-auto sm:min-w-[200px] text-base font-semibold"
+          onClick={handleSubmit}
+          disabled={
+            isSubmitting || (activeTab === "glasses" && hasValidationErrors)
+          }
+        >
+          {isSubmitting ? (
+            <>
+              <Loader2
+                className={`h-4 w-4 animate-spin ${
+                  language === "ar" ? "ms-0 me-2" : "me-2"
+                }`}
+              />
+              {t("saving")}
+            </>
+          ) : (
+            t("saveAndContinue")
+          )}
+        </Button>
+      </div>
 
       <AlertDialog open={showPrintDialog} onOpenChange={setShowPrintDialog}>
         <AlertDialogContent className={dirClass}>

@@ -25,6 +25,7 @@ import { LanguageToggle } from "@/components/LanguageToggle";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { CollapsibleCard } from "@/components/ui/collapsible-card";
 import { format } from "date-fns";
+import { ar } from "date-fns/locale";
 
 export const Dashboard: React.FC = () => {
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -110,8 +111,14 @@ export const Dashboard: React.FC = () => {
 
   const rtlClass = language === 'ar' ? 'rtl' : 'ltr';
   const welcomeMessage = language === 'ar' ? 'مرحباً بكم في متجرنا' : 'Welcome to Our Store';
-  const dateFormatted = format(currentTime, 'EEEE, MMMM do, yyyy');
-  const timeFormatted = format(currentTime, 'h:mm:ss a');
+  const dateFormatted =
+    language === 'ar'
+      ? format(currentTime, 'EEEE، d MMMM yyyy', { locale: ar })
+      : format(currentTime, 'EEEE, MMMM do, yyyy');
+  const timeFormatted =
+    language === 'ar'
+      ? format(currentTime, 'h:mm:ss a', { locale: ar })
+      : format(currentTime, 'h:mm:ss a');
 
   return (
     <div className={`py-4 space-y-6 ${rtlClass}`}>

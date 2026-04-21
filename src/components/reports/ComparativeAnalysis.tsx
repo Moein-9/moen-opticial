@@ -402,7 +402,15 @@ const ComparativeAnalysis: React.FC<ComparativeAnalysisProps> = ({
       if (isNaN(d.getTime())) return false;
       return d >= rangeFrom! && d <= rangeTo!;
     };
-    return [...(invoices || []), ...(refundedInvoices || [])]
+    // Dedupe by invoice_id — `invoices` now contains refunded rows too
+    // (so the payment aggregator can credit their original payment day),
+    // and `refundedInvoices` is still its own list, so we concat-then-dedupe.
+    const byId = new Map<string, any>();
+    for (const inv of [...(invoices || []), ...(refundedInvoices || [])]) {
+      const id = (inv as any).invoice_id;
+      if (id && !byId.has(id)) byId.set(id, inv);
+    }
+    return Array.from(byId.values())
       .map((inv) => {
         const payments = Array.isArray((inv as any).payments)
           ? (inv as any).payments
@@ -547,7 +555,10 @@ const ComparativeAnalysis: React.FC<ComparativeAnalysisProps> = ({
               : invoice.payments || [],
         }));
 
-        setInvoices(parsed.filter((i: any) => !i.is_refunded));
+        // Keep refunded invoices in the main list so the aggregator can still
+        // credit their payments to the original payment-day. The refund-day
+        // subtraction happens separately off refundedInvoices.
+        setInvoices(parsed);
         setRefundedInvoices(parsed.filter((i: any) => i.is_refunded));
       } catch (err) {
         console.error(err);
