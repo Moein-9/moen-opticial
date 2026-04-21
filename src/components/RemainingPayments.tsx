@@ -64,6 +64,10 @@ import {
   addMultiplePaymentsToInvoice,
 } from "@/services/invoiceService";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  PatientProfileDialog,
+  PatientProfileDialogHandle,
+} from "@/components/PatientProfileDialog";
 
 // Define Invoice interface locally to avoid store dependency
 interface Invoice {
@@ -168,6 +172,95 @@ export const RemainingPayments: React.FC = () => {
   const [deleteError, setDeleteError] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // Edit dialog state — admin-password gated; lets staff correct the
+  // Total / Paid (deposit) on an invoice. Remaining and is_paid are
+  // recomputed automatically. All downstream consumers (Reports, profile,
+  // transactions list) read these fields directly from Supabase, so the
+  // change propagates everywhere as soon as we re-fetch.
+  const [editTarget, setEditTarget] = useState<Invoice | null>(null);
+  const [editTotal, setEditTotal] = useState("");
+  const [editDeposit, setEditDeposit] = useState("");
+  const [editPassword, setEditPassword] = useState("");
+  const [editError, setEditError] = useState("");
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+
+  const resetEditDialog = () => {
+    setEditTarget(null);
+    setEditTotal("");
+    setEditDeposit("");
+    setEditPassword("");
+    setEditError("");
+    setIsSavingEdit(false);
+  };
+
+  const handleConfirmEdit = async () => {
+    if (!editTarget) return;
+    const expected = import.meta.env.VITE_ADMIN_PASSWORD || "";
+    if (!expected || editPassword !== expected) {
+      setEditError(
+        language === "ar"
+          ? "كلمة مرور المدير غير صحيحة. يُرجى طلبها من المدير."
+          : "Incorrect admin password. Ask your manager."
+      );
+      return;
+    }
+    const newTotal = Number(editTotal);
+    const newDeposit = Number(editDeposit);
+    if (
+      !Number.isFinite(newTotal) ||
+      !Number.isFinite(newDeposit) ||
+      newTotal < 0 ||
+      newDeposit < 0
+    ) {
+      setEditError(
+        language === "ar"
+          ? "الرجاء إدخال أرقام صحيحة."
+          : "Please enter valid numbers."
+      );
+      return;
+    }
+    if (newDeposit > newTotal) {
+      setEditError(
+        language === "ar"
+          ? "المدفوع لا يمكن أن يكون أكبر من الإجمالي."
+          : "Paid amount cannot exceed total."
+      );
+      return;
+    }
+    const newRemaining = Math.max(0, newTotal - newDeposit);
+    const isPaid = newRemaining === 0;
+    setIsSavingEdit(true);
+    try {
+      // @ts-ignore — invoices table not in generated types
+      const { error } = await supabase
+        .from("invoices")
+        .update({
+          total: newTotal,
+          deposit: newDeposit,
+          remaining: newRemaining,
+          is_paid: isPaid,
+          last_edited_at: new Date().toISOString(),
+        })
+        .eq("invoice_id", editTarget.invoice_id);
+      if (error) throw error;
+      toast.success(
+        language === "ar"
+          ? "تم تحديث الفاتورة"
+          : "Invoice updated"
+      );
+      resetEditDialog();
+      await loadUnpaidInvoices();
+    } catch (e) {
+      console.error("Edit invoice failed:", e);
+      toast.error(
+        language === "ar"
+          ? "حدث خطأ أثناء تحديث الفاتورة"
+          : "Error updating invoice"
+      );
+      setIsSavingEdit(false);
+    }
+  };
+
   const resetDeleteDialog = () => {
     setDeleteTarget(null);
     setDeleteMode(null);
@@ -243,6 +336,11 @@ export const RemainingPayments: React.FC = () => {
       setIsDeleting(false);
     }
   };
+
+  // Imperative handle to the shared profile dialog — clicking "Client File"
+  // now opens the same in-place profile dialog we use on the Reports page,
+  // instead of navigating to the Patient Search section.
+  const profileDialogRef = React.useRef<PatientProfileDialogHandle>(null);
 
   useEffect(() => {
     loadUnpaidInvoices();
@@ -407,15 +505,19 @@ export const RemainingPayments: React.FC = () => {
     patientName?: string,
     patientPhone?: string
   ) => {
+    // Open the same in-place profile dialog the Reports page uses.
     if (patientId) {
-      navigate("/", {
-        state: {
-          section: "patientSearch",
-          patientId: patientId,
-          searchMode: "id",
-        },
-      });
-    } else if (patientName || patientPhone) {
+      profileDialogRef.current?.openProfile(patientId);
+      return;
+    }
+    // No patient_id on the invoice — fall back to the old navigation
+    // behavior so staff can still find the customer via search.
+    if (patientName || patientPhone) {
+      toast.info(
+        language === "ar"
+          ? "لا يوجد رقم عميل مرتبط بهذه الفاتورة — سيتم فتح البحث"
+          : "No customer ID linked to this invoice — opening search"
+      );
       navigate("/", {
         state: {
           section: "patientSearch",
@@ -1374,8 +1476,8 @@ export const RemainingPayments: React.FC = () => {
                       </DialogContent>
                     </Dialog>
 
-                    {/* Secondary actions — View invoice / Client file / Delete */}
-                    <div className="grid grid-cols-3 gap-2 mt-2">
+                    {/* Secondary actions — View invoice / Client file / Edit / Delete */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2">
                       <Dialog
                         open={showReceipt === invoice.invoice_id}
                         onOpenChange={(open) => !open && setShowReceipt(null)}
@@ -1445,6 +1547,21 @@ export const RemainingPayments: React.FC = () => {
                       >
                         <UserCircle className="h-3.5 w-3.5" />
                         {t("clientFile")}
+                      </Button>
+
+                      <Button
+                        variant="outline"
+                        className="h-10 text-xs border-sky-200 bg-white hover:bg-sky-50 text-sky-700 font-medium rounded-lg gap-1.5"
+                        onClick={() => {
+                          setEditTarget(invoice);
+                          setEditTotal(String(invoice.total ?? ""));
+                          setEditDeposit(String(invoice.deposit ?? ""));
+                          setEditPassword("");
+                          setEditError("");
+                        }}
+                      >
+                        <Tag className="h-3.5 w-3.5" />
+                        {language === "ar" ? "تعديل" : "Edit"}
                       </Button>
 
                       <Button
@@ -1729,6 +1846,195 @@ export const RemainingPayments: React.FC = () => {
                 )}
               </Button>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* In-place customer profile dialog — same one used by the Reports
+          page. Triggered imperatively from "Client File" button. */}
+      <PatientProfileDialog ref={profileDialogRef} />
+
+      {/* Edit invoice dialog — admin password gated. Lets staff correct
+          Total / Paid on an invoice; Remaining and is_paid recompute.
+          Updates Supabase directly so reports, profile, and transaction
+          views all see the change on next read. */}
+      <Dialog
+        open={editTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) resetEditDialog();
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-sky-700">
+              <Tag className="h-5 w-5" />
+              {language === "ar" ? "تعديل الفاتورة" : "Edit Invoice"}
+            </DialogTitle>
+            <DialogDescription>
+              {language === "ar"
+                ? "صحّح إجمالي الفاتورة أو المبلغ المدفوع. سيتم إعادة حساب المتبقي تلقائياً، وسيتم تحديث التقارير وملف العميل تلقائياً."
+                : "Correct the invoice total or paid amount. Remaining is recalculated automatically and reports / profile update on next read."}
+            </DialogDescription>
+          </DialogHeader>
+
+          {editTarget && (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm">
+              <div className="font-semibold text-slate-900">
+                {editTarget.patient_name}{" "}
+                <span className="text-slate-500 font-mono text-xs">
+                  #{editTarget.invoice_id}
+                </span>
+              </div>
+              <div className="text-xs text-slate-500 mt-0.5">
+                {language === "ar" ? "الحالي" : "Currently"}:{" "}
+                {Number(editTarget.total).toFixed(2)} /{" "}
+                {Number(editTarget.deposit).toFixed(2)} (
+                {Number(editTarget.remaining).toFixed(2)}{" "}
+                {language === "ar" ? "متبقي" : "remaining"})
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-3 pt-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-total">
+                  {language === "ar" ? "الإجمالي" : "Total"}
+                </Label>
+                <Input
+                  id="edit-total"
+                  type="number"
+                  step="0.001"
+                  min="0"
+                  inputMode="decimal"
+                  value={editTotal}
+                  onChange={(e) => {
+                    setEditTotal(e.target.value);
+                    if (editError) setEditError("");
+                  }}
+                  className="h-11 text-base tabular-nums"
+                  dir="ltr"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-deposit">
+                  {language === "ar" ? "المدفوع" : "Paid"}
+                </Label>
+                <Input
+                  id="edit-deposit"
+                  type="number"
+                  step="0.001"
+                  min="0"
+                  inputMode="decimal"
+                  value={editDeposit}
+                  onChange={(e) => {
+                    setEditDeposit(e.target.value);
+                    if (editError) setEditError("");
+                  }}
+                  className="h-11 text-base tabular-nums"
+                  dir="ltr"
+                />
+              </div>
+            </div>
+
+            {/* Live preview of new remaining */}
+            {(() => {
+              const t = Number(editTotal);
+              const d = Number(editDeposit);
+              if (!Number.isFinite(t) || !Number.isFinite(d)) return null;
+              const newRemaining = Math.max(0, t - d);
+              const willBePaid = newRemaining === 0 && t > 0;
+              return (
+                <div
+                  className={`rounded-lg p-3 border tabular-nums ${
+                    willBePaid
+                      ? "bg-emerald-50 border-emerald-200"
+                      : "bg-amber-50 border-amber-200"
+                  }`}
+                  dir="ltr"
+                >
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-xs uppercase tracking-wide font-semibold text-slate-600">
+                      {language === "ar"
+                        ? "المتبقي بعد التعديل"
+                        : "New remaining"}
+                    </span>
+                    <span
+                      className={`text-xl font-bold ${
+                        willBePaid ? "text-emerald-700" : "text-amber-700"
+                      }`}
+                    >
+                      {newRemaining.toFixed(2)} KWD
+                    </span>
+                  </div>
+                  {willBePaid && (
+                    <div className="text-xs text-emerald-700 font-medium mt-1">
+                      {language === "ar"
+                        ? "سيتم تحديد الفاتورة كمدفوعة بالكامل"
+                        : "Invoice will be marked Fully paid"}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            <div className="space-y-1.5 pt-2 border-t border-dashed">
+              <Label htmlFor="edit-pw">
+                {language === "ar" ? "كلمة مرور المدير" : "Admin password"}
+              </Label>
+              <Input
+                id="edit-pw"
+                type="password"
+                autoComplete="off"
+                value={editPassword}
+                onChange={(e) => {
+                  setEditPassword(e.target.value);
+                  if (editError) setEditError("");
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !isSavingEdit) handleConfirmEdit();
+                }}
+                placeholder={
+                  language === "ar"
+                    ? "اطلب كلمة المرور من المدير"
+                    : "Ask your manager for the password"
+                }
+                className="h-11"
+              />
+              {editError && (
+                <p className="text-sm text-rose-600 flex items-center gap-1">
+                  <AlertTriangle className="h-4 w-4" />
+                  {editError}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={resetEditDialog}
+              disabled={isSavingEdit}
+            >
+              {language === "ar" ? "إلغاء" : "Cancel"}
+            </Button>
+            <Button
+              onClick={handleConfirmEdit}
+              disabled={isSavingEdit || !editPassword || !editTotal}
+              className="bg-sky-700 hover:bg-sky-800 text-white"
+            >
+              {isSavingEdit ? (
+                <>
+                  <Loader2 className="w-4 h-4 me-1 animate-spin" />
+                  {language === "ar" ? "جارٍ الحفظ..." : "Saving..."}
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-4 h-4 me-1" />
+                  {language === "ar" ? "حفظ التعديل" : "Save changes"}
+                </>
+              )}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
