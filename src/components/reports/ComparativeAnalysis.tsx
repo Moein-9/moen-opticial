@@ -45,6 +45,7 @@ import {
 import { PrintService } from "@/utils/PrintService";
 import { PrintReportButton } from "./PrintReportButton";
 import { supabase } from "@/integrations/supabase/client";
+import { storeInfo } from "@/assets/logo";
 import { useNavigate } from "react-router-dom";
 import { CustomPrintService } from "@/utils/CustomPrintService";
 import { Input } from "@/components/ui/input";
@@ -129,15 +130,11 @@ interface Invoice {
   contact_lens_items?: any;
 }
 
-const STORE_INFO = {
-  name: { en: "Moein Optical", ar: "نظارات المعين" },
-  logo: "/lovable-uploads/826ece02-80b8-482d-a2be-8292f3460297.png",
-  address: {
-    en: "123 Vision Street, Kuwait City",
-    ar: "١٢٣ شارع الرؤية، مدينة الكويت",
-  },
-  phone: "+965 1234 5678",
-};
+// Real store info — imported from the shared storeInfo in @/assets/logo
+// so the printed Comparative Analysis report matches every other
+// printable template in the app (invoice, work order, RX receipt, etc.)
+// rather than using the old "123 Vision Street" placeholders.
+const STORE_LOGO = "/lovable-uploads/d0902afc-d6a5-486b-9107-68104dfd2a68.png";
 
 // Single-source palette aligned with DailySalesReport
 const PALETTE = {
@@ -463,7 +460,7 @@ const ComparativeAnalysis: React.FC<ComparativeAnalysisProps> = ({
   const t = {
     pageTitle:
       language === "ar" ? "التحليل المقارن" : "Comparative Analysis",
-    storeLabel: STORE_INFO.name[language === "ar" ? "ar" : "en"],
+    storeLabel: storeInfo.name,
     totalSales: language === "ar" ? "إجمالي المبيعات" : "Total Sales",
     avgDaily: language === "ar" ? "متوسط اليومي" : "Average Daily",
     txCount: language === "ar" ? "عدد المعاملات" : "Transactions",
@@ -679,11 +676,14 @@ const ComparativeAnalysis: React.FC<ComparativeAnalysisProps> = ({
 
     const reportContent = `
       <div class="store-header">
-        <div class="store-logo"><img src="${STORE_INFO.logo}" alt="${t.storeLabel}" /></div>
+        <div class="store-logo"><img src="${STORE_LOGO}" alt="${t.storeLabel}" /></div>
         <div class="store-info">
-          <p class="store-name"><strong>${t.storeLabel}</strong></p>
-          <p class="store-address">${STORE_INFO.address[language === "ar" ? "ar" : "en"]}</p>
-          <p class="store-phone">${STORE_INFO.phone}</p>
+          <p class="store-name"><strong>${storeInfo.name}</strong></p>
+          ${storeInfo.address
+            .split("\n")
+            .map((line) => `<p class="store-address">${line}</p>`)
+            .join("")}
+          <p class="store-phone">${storeInfo.phone}</p>
         </div>
       </div>
       <div class="report-header">
