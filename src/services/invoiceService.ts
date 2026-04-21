@@ -409,6 +409,7 @@ export const getUnpaidInvoices = async () => {
       .select('*')
       .eq('is_paid', false)
       .gt('remaining', 0) // Only get invoices with remaining balance greater than 0
+      .or('is_archived.is.null,is_archived.eq.false') // Exclude archived invoices (soft-deleted via RemainingPayments delete flow)
       .order('created_at', { ascending: false });
       
     if (error) {

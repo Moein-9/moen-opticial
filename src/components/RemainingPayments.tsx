@@ -282,28 +282,41 @@ export const RemainingPayments: React.FC = () => {
     setIsDeleting(true);
     try {
       if (deleteMode === "full") {
-        // Archive the invoice + treat the deposit as a refund so reports
-        // subtract it from today's revenue. The payments[] array is kept
-        // intact (audit trail) — downstream cash-basis reporting ignores
-        // invoices flagged `is_refunded`.
+        // Archive the invoice. If there was a real deposit collected, also
+        // stamp it as a refund so reports subtract it from today's revenue.
+        // If deposit is 0 (invoice created but never paid), skip the refund
+        // flags entirely — nothing to refund, no need to pollute the refund
+        // list with a 0.00 KWD ghost record.
+        const depositAmount = Number(deleteTarget.deposit) || 0;
+        const isRealRefund = depositAmount > 0;
         // @ts-ignore
         const { error } = await supabase
           .from("invoices")
           .update({
             is_archived: true,
             archived_at: new Date().toISOString(),
-            is_refunded: true,
-            refund_amount: Number(deleteTarget.deposit) || 0,
-            refund_date: new Date().toISOString(),
-            refund_method: deleteTarget.payment_method || "Cash",
-            refund_id: `RF${Date.now()}`,
+            is_paid: true,
+            remaining: 0,
+            ...(isRealRefund
+              ? {
+                  is_refunded: true,
+                  refund_amount: depositAmount,
+                  refund_date: new Date().toISOString(),
+                  refund_method: deleteTarget.payment_method || "Cash",
+                  refund_id: `RF${Date.now()}`,
+                }
+              : {}),
           })
           .eq("invoice_id", deleteTarget.invoice_id);
         if (error) throw error;
         toast.success(
           language === "ar"
-            ? "تم حذف الفاتورة وإرجاع الدفعة"
-            : "Invoice deleted, deposit refunded"
+            ? isRealRefund
+              ? "تم حذف الفاتورة وإرجاع الدفعة"
+              : "تم حذف الفاتورة"
+            : isRealRefund
+            ? "Invoice deleted, deposit refunded"
+            : "Invoice deleted"
         );
       } else {
         // Write-off: keep deposit as collected revenue, force remaining to
