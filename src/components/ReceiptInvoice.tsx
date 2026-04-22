@@ -133,11 +133,11 @@ export const ReceiptInvoice: React.FC<ReceiptInvoiceProps> = ({
     ? invoice.contactLensItems
     : [];
 
+  const resolvedInvoiceType = invoiceType || invoice.invoiceType;
   const isContactLens =
-    invoiceType === "contacts" ||
-    invoice.invoiceType === "contacts" ||
-    contactLensItems.length > 0;
-  const isEyeExam = invoiceType === "exam" || invoice.invoiceType === "exam";
+    resolvedInvoiceType === "contacts" || contactLensItems.length > 0;
+  const isEyeExam = resolvedInvoiceType === "exam";
+  const isRepair = resolvedInvoiceType === "repair";
 
   const service = {
     name: serviceName || invoice.serviceName || "",
@@ -146,6 +146,19 @@ export const ReceiptInvoice: React.FC<ReceiptInvoiceProps> = ({
     price:
       servicePrice !== undefined ? servicePrice : invoice.servicePrice || 0,
   };
+
+  // Split "English | Arabic" bilingual strings for the printed side of the
+  // receipt. Falls back to the raw value if the separator is absent so
+  // mono-lingual entries still render cleanly.
+  const splitBilingual = (raw: string): { en: string; ar: string } => {
+    const v = (raw || "").trim();
+    if (!v) return { en: "", ar: "" };
+    if (!v.includes("|")) return { en: v, ar: v };
+    const [a, b] = v.split("|").map((p) => p.trim());
+    return { en: a || b, ar: b || a };
+  };
+  const serviceLabel = splitBilingual(service.name);
+  const hasGlassesItems = Boolean(lens || frameBrand || coat);
 
   const isRefunded = invoice.isRefunded;
   const refundAmount = invoice.refundAmount || 0;
@@ -304,7 +317,27 @@ export const ReceiptInvoice: React.FC<ReceiptInvoiceProps> = ({
                 {isRtl ? "فحص العين | Eye Exam" : "Eye Exam | فحص العين"}
               </div>
               <div className="text-base font-medium text-center">
-                {service.name || t("eyeExam")}
+                {service.name
+                  ? isRtl
+                    ? serviceLabel.ar
+                    : serviceLabel.en
+                  : t("eyeExam")}
+                {service.description && <span> - {service.description}</span>}
+              </div>
+            </div>
+          ) : isRepair ? (
+            <div className="p-2 border-2 border-gray-300 rounded">
+              <div className="text-base font-bold text-center">
+                {isRtl ? "الخدمة | Service" : "Service | الخدمة"}
+              </div>
+              <div className="text-base font-medium text-center">
+                {service.name
+                  ? isRtl
+                    ? serviceLabel.ar
+                    : serviceLabel.en
+                  : isRtl
+                  ? "خدمة"
+                  : "Service"}
                 {service.description && <span> - {service.description}</span>}
               </div>
             </div>
@@ -328,6 +361,12 @@ export const ReceiptInvoice: React.FC<ReceiptInvoiceProps> = ({
                 </div>
               </div>
             ))
+          ) : !hasGlassesItems ? (
+            <div className="p-2 border-2 border-gray-300 rounded">
+              <div className="text-base font-medium text-center">
+                {isRtl ? "لا توجد بنود" : "No line items"}
+              </div>
+            </div>
           ) : (
             <div className="space-y-2">
               {lens && (

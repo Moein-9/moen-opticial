@@ -94,6 +94,204 @@ interface Invoice {
   payments?: any;
 }
 
+// ---------------------------------------------------------------------------
+// Smart invoice line items
+//
+// The invoice row in "Today's Invoice List" used to render three hardcoded
+// cards (Lenses / Frame / Coating) regardless of what was actually sold, so
+// a 1 KWD Frame Repair looked like three empty "—" cards. Render based on
+// invoice_type + field presence so we show the real items.
+// ---------------------------------------------------------------------------
+type LineItem = {
+  key: string;
+  label: string;
+  primary: string;
+  sublabel?: string;
+  price: number;
+  accentClass: string;
+};
+
+const isNonEmptyString = (v: unknown): v is string =>
+  typeof v === "string" && v.trim() !== "";
+
+// Many fields are stored as "English | Arabic". Pick the language-matching
+// side when the separator is present; otherwise return as-is so mono-lingual
+// values (like "نظارات للنظر البعيد") and parenthetical values (like
+// "Basic (عادي)") render unchanged.
+const pickLocale = (s: string | undefined | null, language: string): string => {
+  if (!isNonEmptyString(s)) return "";
+  if (!s.includes("|")) return s.trim();
+  const [en, ar] = s.split("|").map((p) => p.trim());
+  return language === "ar" ? ar || en : en || ar;
+};
+
+function getInvoiceLineItems(
+  invoice: Invoice,
+  t: Record<string, string>,
+  language: string
+): LineItem[] {
+  const items: LineItem[] = [];
+
+  switch (invoice.invoice_type) {
+    case "glasses": {
+      // Fixed order: Frame → Lens → Coating → Thickness. Show only what's
+      // actually on the invoice (plano frame sales, lens-only refits, etc).
+      if (
+        isNonEmptyString(invoice.frame_brand) ||
+        isNonEmptyString(invoice.frame_model)
+      ) {
+        const name = [invoice.frame_brand, invoice.frame_model]
+          .filter(isNonEmptyString)
+          .join(" ")
+          .trim();
+        items.push({
+          key: "frame",
+          label: t.frame,
+          primary: name || "—",
+          sublabel: isNonEmptyString(invoice.frame_color)
+            ? `${t.color}: ${invoice.frame_color}`
+            : undefined,
+          price: Number(invoice.frame_price) || 0,
+          accentClass: "text-amber-600",
+        });
+      }
+      if (isNonEmptyString(invoice.lens_type)) {
+        items.push({
+          key: "lens",
+          label: t.lenses,
+          primary: pickLocale(invoice.lens_type, language),
+          price: Number(invoice.lens_price) || 0,
+          accentClass: "text-sky-600",
+        });
+      }
+      if (isNonEmptyString(invoice.coating)) {
+        items.push({
+          key: "coating",
+          label: t.coating,
+          primary: pickLocale(invoice.coating, language),
+          sublabel: isNonEmptyString(invoice.coating_color)
+            ? `${t.color}: ${invoice.coating_color}`
+            : undefined,
+          price: Number(invoice.coating_price) || 0,
+          accentClass: "text-emerald-600",
+        });
+      }
+      if (isNonEmptyString(invoice.thickness)) {
+        items.push({
+          key: "thickness",
+          label: t.thickness,
+          primary: pickLocale(invoice.thickness, language),
+          price: Number(invoice.thickness_price) || 0,
+          accentClass: "text-violet-600",
+        });
+      }
+      break;
+    }
+
+    case "contacts": {
+      let parsed: any[] = [];
+      const raw = invoice.contact_lens_items;
+      try {
+        if (typeof raw === "string" && raw.trim()) parsed = JSON.parse(raw);
+        else if (Array.isArray(raw)) parsed = raw;
+      } catch {
+        parsed = [];
+      }
+      parsed.forEach((cl, idx) => {
+        const brand = isNonEmptyString(cl?.brand) ? cl.brand : "";
+        const clType = isNonEmptyString(cl?.type) ? cl.type : "";
+        const primary =
+          [brand, clType].filter(Boolean).join(" • ") || t.contactLenses;
+        const qty = Number(cl?.qty) || 1;
+        const power = isNonEmptyString(cl?.power) ? cl.power : "";
+        const color = pickLocale(cl?.color, language);
+        const meta: string[] = [];
+        if (qty > 1) meta.push(`${t.quantity}: ${qty}`);
+        if (power) meta.push(`${t.power}: ${power}`);
+        if (color) meta.push(color);
+        items.push({
+          key: `cl-${idx}-${cl?.id ?? ""}`,
+          label: t.contactLenses,
+          primary,
+          sublabel: meta.length ? meta.join(" • ") : undefined,
+          price: (Number(cl?.price) || 0) * qty,
+          accentClass: "text-rose-600",
+        });
+      });
+      break;
+    }
+
+    case "exam": {
+      items.push({
+        key: "exam",
+        label: t.eyeExam,
+        primary: pickLocale(invoice.service_name, language) || t.eyeExam,
+        price: Number(invoice.service_price) || 0,
+        accentClass: "text-indigo-600",
+      });
+      break;
+    }
+
+    case "repair": {
+      items.push({
+        key: "repair",
+        label: t.service,
+        primary: pickLocale(invoice.service_name, language) || t.service,
+        price: Number(invoice.service_price) || 0,
+        accentClass: "text-slate-700",
+      });
+      break;
+    }
+  }
+
+  return items;
+}
+
+const InvoiceLineItems: React.FC<{
+  invoice: Invoice;
+  t: Record<string, string>;
+  language: string;
+}> = ({ invoice, t, language }) => {
+  const items = getInvoiceLineItems(invoice, t, language);
+
+  if (items.length === 0) {
+    return (
+      <div className="text-sm text-slate-400 italic bg-slate-50 rounded-xl border border-dashed border-slate-200 px-4 py-6 text-center">
+        {t.noItems}
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid gap-3 grid-cols-[repeat(auto-fit,minmax(220px,1fr))]">
+      {items.map((item) => (
+        <div
+          key={item.key}
+          className="bg-white p-4 rounded-xl border border-slate-200"
+        >
+          <h4
+            className={`text-xs font-semibold uppercase tracking-wide mb-1.5 ${item.accentClass}`}
+          >
+            {item.label}
+          </h4>
+          <p className="text-base font-medium text-slate-900 break-words">
+            {item.primary || "—"}
+          </p>
+          {item.sublabel && (
+            <p className="text-xs text-slate-500 mt-0.5">{item.sublabel}</p>
+          )}
+          <div className="flex justify-between mt-2 text-sm">
+            <span className="text-slate-500">{t.price}</span>
+            <span className="font-semibold text-slate-900 tabular-nums">
+              {item.price.toFixed(2)} {t.currency}
+            </span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 export const DailySalesReport: React.FC = () => {
   const { language } = useLanguageStore();
 
@@ -191,6 +389,13 @@ export const DailySalesReport: React.FC = () => {
     frame: language === "ar" ? "الإطار" : "Frame",
     color: language === "ar" ? "اللون" : "Color",
     coating: language === "ar" ? "الطلاء" : "Coating",
+    thickness: language === "ar" ? "السُمك" : "Thickness",
+    eyeExam: language === "ar" ? "فحص النظر" : "Eye Exam",
+    service: language === "ar" ? "خدمة" : "Service",
+    contactLenses: language === "ar" ? "عدسات لاصقة" : "Contact Lenses",
+    quantity: language === "ar" ? "الكمية" : "Qty",
+    power: language === "ar" ? "القوة" : "Power",
+    noItems: language === "ar" ? "لا توجد بنود" : "No line items",
     currency: language === "ar" ? "د.ك" : "KWD",
     totalRefunds:
       language === "ar" ? "إجمالي المبالغ المستردة" : "Total Refunds",
@@ -1724,60 +1929,11 @@ export const DailySalesReport: React.FC = () => {
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                        <div className="bg-white p-4 rounded-xl border border-slate-200">
-                          <h4 className="text-xs font-semibold uppercase tracking-wide text-sky-600 mb-1.5">
-                            {t.lenses}
-                          </h4>
-                          <p className="text-base font-medium text-slate-900">
-                            {invoice.lens_type || "—"}
-                          </p>
-                          <div className="flex justify-between mt-2 text-sm">
-                            <span className="text-slate-500">{t.price}</span>
-                            <span className="font-semibold text-slate-900 tabular-nums">
-                              {invoice.lens_price?.toFixed(2) || "0.00"}{" "}
-                              {t.currency}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="bg-white p-4 rounded-xl border border-slate-200">
-                          <h4 className="text-xs font-semibold uppercase tracking-wide text-amber-600 mb-1.5">
-                            {t.frame}
-                          </h4>
-                          <p className="text-base font-medium text-slate-900">
-                            {invoice.frame_brand} {invoice.frame_model}
-                          </p>
-                          {invoice.frame_color && (
-                            <p className="text-xs text-slate-500 mt-0.5">
-                              {t.color}: {invoice.frame_color}
-                            </p>
-                          )}
-                          <div className="flex justify-between mt-2 text-sm">
-                            <span className="text-slate-500">{t.price}</span>
-                            <span className="font-semibold text-slate-900 tabular-nums">
-                              {invoice.frame_price?.toFixed(2) || "0.00"}{" "}
-                              {t.currency}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="bg-white p-4 rounded-xl border border-slate-200">
-                          <h4 className="text-xs font-semibold uppercase tracking-wide text-emerald-600 mb-1.5">
-                            {t.coating}
-                          </h4>
-                          <p className="text-base font-medium text-slate-900">
-                            {invoice.coating || "—"}
-                          </p>
-                          <div className="flex justify-between mt-2 text-sm">
-                            <span className="text-slate-500">{t.price}</span>
-                            <span className="font-semibold text-slate-900 tabular-nums">
-                              {invoice.coating_price?.toFixed(2) || "0.00"}{" "}
-                              {t.currency}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
+                      <InvoiceLineItems
+                        invoice={invoice}
+                        t={t}
+                        language={language}
+                      />
                     </div>
                   )}
                 </div>
@@ -2385,60 +2541,11 @@ export const DailySalesReport: React.FC = () => {
                           )}
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                          <div className="bg-white p-4 rounded-xl border border-slate-200">
-                            <h4 className="text-xs font-semibold uppercase tracking-wide text-sky-600 mb-1.5">
-                              {t.lenses}
-                            </h4>
-                            <p className="text-base font-medium text-slate-900">
-                              {invoice.lens_type || "—"}
-                            </p>
-                            <div className="flex justify-between mt-2 text-sm">
-                              <span className="text-slate-500">{t.price}</span>
-                              <span className="font-semibold text-slate-900 tabular-nums">
-                                {invoice.lens_price?.toFixed(2) || "0.00"}{" "}
-                                {t.currency}
-                              </span>
-                            </div>
-                          </div>
-
-                          <div className="bg-white p-4 rounded-xl border border-slate-200">
-                            <h4 className="text-xs font-semibold uppercase tracking-wide text-amber-600 mb-1.5">
-                              {t.frame}
-                            </h4>
-                            <p className="text-base font-medium text-slate-900">
-                              {invoice.frame_brand} {invoice.frame_model}
-                            </p>
-                            {invoice.frame_color && (
-                              <p className="text-xs text-slate-500 mt-0.5">
-                                {t.color}: {invoice.frame_color}
-                              </p>
-                            )}
-                            <div className="flex justify-between mt-2 text-sm">
-                              <span className="text-slate-500">{t.price}</span>
-                              <span className="font-semibold text-slate-900 tabular-nums">
-                                {invoice.frame_price?.toFixed(2) || "0.00"}{" "}
-                                {t.currency}
-                              </span>
-                            </div>
-                          </div>
-
-                          <div className="bg-white p-4 rounded-xl border border-slate-200">
-                            <h4 className="text-xs font-semibold uppercase tracking-wide text-emerald-600 mb-1.5">
-                              {t.coating}
-                            </h4>
-                            <p className="text-base font-medium text-slate-900">
-                              {invoice.coating || "—"}
-                            </p>
-                            <div className="flex justify-between mt-2 text-sm">
-                              <span className="text-slate-500">{t.price}</span>
-                              <span className="font-semibold text-slate-900 tabular-nums">
-                                {invoice.coating_price?.toFixed(2) || "0.00"}{" "}
-                                {t.currency}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
+                        <InvoiceLineItems
+                          invoice={invoice}
+                          t={t}
+                          language={language}
+                        />
                       </div>
                     )}
                   </div>
