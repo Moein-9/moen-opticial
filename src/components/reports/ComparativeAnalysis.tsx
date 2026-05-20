@@ -66,6 +66,10 @@ import {
   Eye as EyeIcon,
   ClipboardList,
   X as XIcon,
+  Banknote,
+  CreditCard,
+  Wallet,
+  Check,
 } from "lucide-react";
 import {
   Dialog,
@@ -162,6 +166,16 @@ const formatKWD = (value: number, lang: "ar" | "en") => {
   return lang === "ar" ? `${num} د.ك` : `${num} KWD`;
 };
 
+// Bucket a raw payment-method label (Arabic or English) into the three
+// groups we report on. Kept in sync with the normalization in
+// DailySalesReport.tsx (renderMethodIcon) so the two reports never disagree.
+const normalizePaymentMethod = (method?: string): "cash" | "knet" | "other" => {
+  const m = (method || "").toLowerCase();
+  if (method === "نقداً" || method === "نقدا" || m === "cash") return "cash";
+  if (method === "كي نت" || m === "knet" || m === "k-net") return "knet";
+  return "other";
+};
+
 interface ComparativeAnalysisProps {
   className?: string;
 }
@@ -174,6 +188,11 @@ const ComparativeAnalysis: React.FC<ComparativeAnalysisProps> = ({
   const { language, t: tr } = useLanguageStore();
   const navigate = useNavigate();
   const [txFilter, setTxFilter] = useState("");
+  // Payment-method filter for the transactions list, toggled by clicking the
+  // breakdown pills under Product Sales. "all" = no method filter.
+  const [methodFilter, setMethodFilter] = useState<
+    "all" | "cash" | "knet" | "other"
+  >("all");
   const isRtl = language === "ar";
 
   // Print choice dialog — which invoice the user clicked "Print" on
@@ -433,18 +452,37 @@ const ComparativeAnalysis: React.FC<ComparativeAnalysisProps> = ({
         } else if (payments.length === 0 && inRange(createdAt)) {
           activityDate = createdAt;
         }
-        return { inv, activityDate };
+        // Classify this invoice's payment method the same way the breakdown
+        // pills do: one method across its in-range payments → that method,
+        // mixed → "other". Falls back to the payment_method column when no
+        // in-range payment rows exist (e.g. legacy / refund-only invoices).
+        const methodSet = new Set<"cash" | "knet" | "other">();
+        for (const p of inRangePayments) {
+          methodSet.add(
+            normalizePaymentMethod(p?.method || (inv as any).payment_method)
+          );
+        }
+        let methodClass: "cash" | "knet" | "other";
+        if (methodSet.size === 1) methodClass = [...methodSet][0];
+        else if (methodSet.size === 0)
+          methodClass = normalizePaymentMethod((inv as any).payment_method);
+        else methodClass = "other";
+        return { inv, activityDate, methodClass };
       })
       .filter((x) => x.activityDate !== null)
       .map((x) => ({
         ...(x.inv as any),
         __activityDate: x.activityDate,
+        __methodClass: x.methodClass,
       }))
       .slice()
       .sort((a, b) =>
         ((b as any).__activityDate || "").localeCompare(
           (a as any).__activityDate || ""
         )
+      )
+      .filter((inv) =>
+        methodFilter === "all" ? true : inv.__methodClass === methodFilter
       )
       .filter((inv) => {
         if (!q) return true;
@@ -454,7 +492,7 @@ const ComparativeAnalysis: React.FC<ComparativeAnalysisProps> = ({
           (inv.patient_phone || "").toLowerCase().includes(q)
         );
       });
-  }, [invoices, refundedInvoices, date, txFilter]);
+  }, [invoices, refundedInvoices, date, txFilter, methodFilter]);
 
   const [salesData, setSalesData] = useState<any[]>([]);
   const [productSalesData, setProductSalesData] = useState<any[]>([]);
@@ -464,6 +502,20 @@ const ComparativeAnalysis: React.FC<ComparativeAnalysisProps> = ({
   const [averageDailySales, setAverageDailySales] = useState(0);
   const [transactionCount, setTransactionCount] = useState(0);
   const [refundCount, setRefundCount] = useState(0);
+  // Per-method breakdown of in-range transactions: how many (distinct
+  // invoices) and how much (KWD received). `count` classifies each invoice
+  // once — a split invoice (cash deposit + KNET balance) counts as "other" —
+  // while `amount` sums the actual payments by their own method, so the money
+  // is always attributed to the card the customer really used.
+  const [methodTotals, setMethodTotals] = useState<{
+    cash: { count: number; amount: number };
+    knet: { count: number; amount: number };
+    other: { count: number; amount: number };
+  }>({
+    cash: { count: 0, amount: 0 },
+    knet: { count: 0, amount: 0 },
+    other: { count: 0, amount: 0 },
+  });
 
   const t = {
     pageTitle:
@@ -486,7 +538,24 @@ const ComparativeAnalysis: React.FC<ComparativeAnalysisProps> = ({
     frames: language === "ar" ? "الإطارات" : "Frames",
     coatings: language === "ar" ? "الطلاءات" : "Coatings",
     customRange: language === "ar" ? "نطاق مخصص" : "Custom range",
+    paymentBreakdown:
+      language === "ar" ? "المعاملات حسب الدفع" : "Transactions by payment",
+    cash: language === "ar" ? "نقداً" : "Cash",
+    knet: language === "ar" ? "كي نت" : "KNET",
+    otherMethod: language === "ar" ? "أخرى" : "Other",
+    txUnit: language === "ar" ? "معاملة" : "txns",
+    txnsUnit: language === "ar" ? "عملية" : "txns",
+    clearFilter: language === "ar" ? "إلغاء التصفية" : "Clear filter",
   };
+
+  const methodFilterLabel =
+    methodFilter === "cash"
+      ? t.cash
+      : methodFilter === "knet"
+      ? t.knet
+      : methodFilter === "other"
+      ? t.otherMethod
+      : "";
 
   const presets: { key: PresetKey; label: string }[] = [
     { key: "today", label: language === "ar" ? "اليوم" : "Today" },
@@ -632,6 +701,12 @@ const ComparativeAnalysis: React.FC<ComparativeAnalysisProps> = ({
     let frameSales = 0;
     let coatingSales = 0;
     const payingInvoiceIds = new Set<string>();
+    // Per-invoice set of payment methods used by its in-range payments, so we
+    // can classify each transaction once (an invoice with both cash + KNET
+    // payments → "other"). Keyed by invoice_id to dedupe split payments.
+    const invoiceMethods = new Map<string, Set<"cash" | "knet" | "other">>();
+    // Money received per method, summed over the actual in-range payments.
+    const methodAmount = { cash: 0, knet: 0, other: 0 };
 
     paymentBuckets.forEach((bucket, dayKey) => {
       if (!dailySales[dayKey]) dailySales[dayKey] = { sales: 0, refunds: 0 };
@@ -641,9 +716,32 @@ const ComparativeAnalysis: React.FC<ComparativeAnalysisProps> = ({
       frameSales += bucket.frame;
       coatingSales += bucket.coating;
       for (const entry of bucket.entries) {
-        payingInvoiceIds.add(entry.invoice.invoice_id);
+        const id = entry.invoice.invoice_id;
+        payingInvoiceIds.add(id);
+        const method = normalizePaymentMethod(
+          entry.payment.method || entry.invoice.payment_method
+        );
+        methodAmount[method] += Number(entry.payment.amount) || 0;
+        const set = invoiceMethods.get(id) || new Set();
+        set.add(method);
+        invoiceMethods.set(id, set);
       }
     });
+
+    // Tally transaction counts by method: one method → that bucket; mixed → other.
+    const counts = { cash: 0, knet: 0, other: 0 };
+    invoiceMethods.forEach((set) => {
+      if (set.size === 1) {
+        counts[[...set][0]] += 1;
+      } else {
+        counts.other += 1;
+      }
+    });
+    const totals = {
+      cash: { count: counts.cash, amount: methodAmount.cash },
+      knet: { count: counts.knet, amount: methodAmount.knet },
+      other: { count: counts.other, amount: methodAmount.other },
+    };
 
     let refundTotal = 0;
     filteredRefunds.forEach((refund) => {
@@ -678,6 +776,7 @@ const ComparativeAnalysis: React.FC<ComparativeAnalysisProps> = ({
     setNetRevenue(total - refundTotal);
     setTransactionCount(payingInvoiceIds.size);
     setRefundCount(filteredRefunds.length);
+    setMethodTotals(totals);
 
     const numberOfDays = Math.max(
       1,
@@ -1154,6 +1253,148 @@ const ComparativeAnalysis: React.FC<ComparativeAnalysisProps> = ({
                     </div>
                   );
                 })()}
+
+                {/* Divider + payment-method breakdown: how many in-range
+                    transactions used each method and how much money came in
+                    through it. Counts classify each invoice once (split
+                    invoice → "Other") so they sum to the "Transactions" KPI;
+                    amounts sum the real payments per method. Click a card to
+                    filter the transactions list below to that method. */}
+                {transactionCount > 0 && (
+                  <div className="mt-6 pt-5 border-t border-slate-200">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-3">
+                      {t.paymentBreakdown}
+                    </p>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
+                      {[
+                        {
+                          key: "cash" as const,
+                          label: t.cash,
+                          data: methodTotals.cash,
+                          color: PALETTE.emerald,
+                          icon: Banknote,
+                        },
+                        {
+                          key: "knet" as const,
+                          label: t.knet,
+                          data: methodTotals.knet,
+                          color: PALETTE.sky,
+                          icon: CreditCard,
+                        },
+                        ...(methodTotals.other.count > 0
+                          ? [
+                              {
+                                key: "other" as const,
+                                label: t.otherMethod,
+                                data: methodTotals.other,
+                                color: PALETTE.slate500,
+                                icon: Wallet,
+                              },
+                            ]
+                          : []),
+                      ].map((item) => {
+                        const active = methodFilter === item.key;
+                        const Icon = item.icon;
+                        return (
+                          <button
+                            type="button"
+                            key={item.key}
+                            onClick={() =>
+                              setMethodFilter((prev) =>
+                                prev === item.key ? "all" : item.key
+                              )
+                            }
+                            aria-pressed={active}
+                            style={
+                              active
+                                ? {
+                                    borderColor: item.color,
+                                    boxShadow: `0 0 0 3px ${item.color}1a`,
+                                  }
+                                : undefined
+                            }
+                            className={[
+                              "group relative overflow-hidden rounded-2xl border p-4 text-start transition-all duration-200",
+                              isRtl ? "text-right" : "text-left",
+                              active
+                                ? "bg-white"
+                                : "border-slate-200 bg-white hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-sm",
+                            ].join(" ")}
+                          >
+                            {/* Left accent rail — flips for RTL via logical start-0 */}
+                            <span
+                              aria-hidden
+                              className="absolute inset-y-0 start-0 w-1 rounded-s-2xl transition-opacity"
+                              style={{
+                                backgroundColor: item.color,
+                                opacity: active ? 1 : 0.35,
+                              }}
+                            />
+                            {/* Whisper of method color on hover */}
+                            <span
+                              aria-hidden
+                              className="absolute inset-0 opacity-0 transition-opacity group-hover:opacity-100"
+                              style={{ backgroundColor: `${item.color}0a` }}
+                            />
+                            {/* Active check, top inline-end corner */}
+                            {active && (
+                              <span
+                                aria-hidden
+                                className="absolute top-3 end-3"
+                                style={{ color: item.color }}
+                              >
+                                <Check className="h-4 w-4" strokeWidth={3} />
+                              </span>
+                            )}
+
+                            <div className="relative">
+                              {/* Icon chip + label */}
+                              <div className="flex items-center gap-2.5">
+                                <span
+                                  className="flex h-8 w-8 items-center justify-center rounded-lg shrink-0"
+                                  style={{
+                                    backgroundColor: `${item.color}1a`,
+                                    color: item.color,
+                                  }}
+                                >
+                                  <Icon className="h-4 w-4" strokeWidth={2.25} />
+                                </span>
+                                <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 truncate">
+                                  {item.label}
+                                </span>
+                              </div>
+
+                              {/* Hero count + micro unit */}
+                              <div className="mt-3 flex items-baseline gap-1.5">
+                                <span className="text-3xl font-bold leading-none text-slate-900 tabular-nums" dir="ltr">
+                                  {nfInt.format(item.data.count)}
+                                </span>
+                                <span className="text-[11px] font-medium text-slate-400">
+                                  {t.txnsUnit}
+                                </span>
+                              </div>
+
+                              {/* Amount — its own line */}
+                              <div className="mt-1.5 text-sm font-semibold text-slate-500 tabular-nums" dir="ltr">
+                                {formatKWD(item.data.amount, language)}
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {methodFilter !== "all" && (
+                      <button
+                        type="button"
+                        onClick={() => setMethodFilter("all")}
+                        className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900"
+                      >
+                        <XIcon className="h-3.5 w-3.5" />
+                        {t.clearFilter}
+                      </button>
+                    )}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
@@ -1161,12 +1402,22 @@ const ComparativeAnalysis: React.FC<ComparativeAnalysisProps> = ({
           {/* ================ Transactions table ================ */}
           <Card className="bg-white border-slate-200 rounded-2xl shadow-sm">
             <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-slate-900 text-xl font-bold">
+              <CardTitle className="flex flex-wrap items-center gap-2 text-slate-900 text-xl font-bold">
                 <Receipt className="h-6 w-6 text-slate-500" />
                 {language === "ar" ? "المعاملات" : "Transactions"}
                 <span className="text-base font-semibold text-slate-500 tabular-nums">
                   ({nfInt.format(filteredTransactions.length)})
                 </span>
+                {methodFilter !== "all" && (
+                  <button
+                    type="button"
+                    onClick={() => setMethodFilter("all")}
+                    className="inline-flex items-center gap-1.5 rounded-full bg-slate-900 px-3 py-1 text-sm font-semibold text-white hover:bg-slate-800"
+                  >
+                    {methodFilterLabel}
+                    <XIcon className="h-3.5 w-3.5" />
+                  </button>
+                )}
               </CardTitle>
             </CardHeader>
             <CardContent className="pt-0">
