@@ -1314,7 +1314,7 @@ const ComparativeAnalysis: React.FC<ComparativeAnalysisProps> = ({
                                 : undefined
                             }
                             className={[
-                              "group relative overflow-hidden rounded-2xl border p-4 text-start transition-all duration-200",
+                              "group relative overflow-hidden rounded-2xl border p-3 sm:p-4 text-start transition-all duration-200",
                               isRtl ? "text-right" : "text-left",
                               active
                                 ? "bg-white"
@@ -1348,10 +1348,12 @@ const ComparativeAnalysis: React.FC<ComparativeAnalysisProps> = ({
                             )}
 
                             <div className="relative">
-                              {/* Icon chip + label */}
-                              <div className="flex items-center gap-2.5">
+                              {/* Icon chip + label. Label must stay fully
+                                  legible at every viewport, so it wraps
+                                  instead of truncating on narrow cards. */}
+                              <div className="flex items-center gap-2 sm:gap-2.5">
                                 <span
-                                  className="flex h-8 w-8 items-center justify-center rounded-lg shrink-0"
+                                  className="flex h-7 w-7 sm:h-8 sm:w-8 items-center justify-center rounded-lg shrink-0"
                                   style={{
                                     backgroundColor: `${item.color}1a`,
                                     color: item.color,
@@ -1359,7 +1361,7 @@ const ComparativeAnalysis: React.FC<ComparativeAnalysisProps> = ({
                                 >
                                   <Icon className="h-4 w-4" strokeWidth={2.25} />
                                 </span>
-                                <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 truncate">
+                                <span className="min-w-0 text-[11px] font-semibold uppercase tracking-wide text-slate-500 leading-tight break-words">
                                   {item.label}
                                 </span>
                               </div>
